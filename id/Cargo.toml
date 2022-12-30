@@ -1,0 +1,17 @@
+[package]
+name = "asset-influx-id"
+version = "0.1.0"
+edition = "2021"
+authors = ["Zakarum <zaq.dev@icloud.com>"]
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/asset-influx-id"
+homepage = "https://github.com/zakarumych/asset-influx"
+repository = "https://github.com/zakarumych/asset-influx"
+readme = "../README.md"
+keywords = ["assets", "gamedev"]
+categories = ["game-development"]
+description = "Defines AssetId type for asset-infux crates"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"

@@ -1,0 +1,18 @@
+[package]
+name = "asset-influx-import"
+version = "0.1.0"
+edition = "2021"
+authors = ["Zakarum <zaq.dev@icloud.com>"]
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/asset-influx-import"
+homepage = "https://github.com/arcana-engine/asset-influx"
+repository = "https://github.com/arcana-engine/asset-influx"
+readme = "../README.md"
+keywords = ["assets", "gamedev"]
+categories = ["game-development"]
+description = "FFI for asset-influx importers"
+
+[dependencies]
+asset-influx-id = { version = "=0.1.0", path = "../id" }
+tracing = { version = "0.1", default-features = false }
+libloading = { version = "0.7", default-features = false, optional = true }

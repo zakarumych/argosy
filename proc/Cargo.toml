@@ -1,0 +1,19 @@
+[package]
+name = "asset-influx-proc"
+version = "0.1.0"
+authors = ["Zakarum <zaq.dev@icloud.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/asset-influx-proc"
+homepage = "https://github.com/arcana-engine/asset-influx-proc"
+repository = "https://github.com/arcana-engine/asset-influx-proc"
+description = "Proc-macro for \"asset-influx\" crate"
+keywords = ["macro", "derive"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0"
+syn = { version = "1.0", features = ["derive"] }
+quote = "1.0"

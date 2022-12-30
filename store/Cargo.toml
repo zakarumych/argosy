@@ -1,0 +1,47 @@
+[package]
+name = "asset-influx-store"
+version = "0.1.0"
+edition = "2021"
+authors = ["Zakarum <zaq.dev@icloud.com>"]
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/asset-influx-store"
+homepage = "https://github.com/arcana-engine/asset-influx"
+repository = "https://github.com/arcana-engine/asset-influx"
+readme = "../README.md"
+keywords = ["assets", "gamedev"]
+categories = ["game-development"]
+description = "Asset influx storage"
+
+[dependencies]
+asset-influx-import = { version = "=0.1.0", path = "../import", features = ["libloading"] }
+asset-influx-id = { version = "=0.1.0", path = "../id" }
+
+rand = "0.8"
+hashbrown = { version = "0.13", features = ["serde"] }
+tinyvec = "1.0"
+smallvec = { version = "1.0", features = ["union", "serde"] }
+
+sha2 = "0.10"
+url = { version = "2.2", features = ["serde"] }
+eyre = "0.6"
+thiserror = "1.0"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_bytes = "0.11"
+toml = "0.5"
+envy = "0.4"
+
+base64 = "0.20"
+
+tokio = { version = "1.0", features = ["macros", "net", "io-util", "rt-multi-thread", "time"] }
+futures-util = "0.3"
+pin-project = "1.0"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-error = "0.2"
+
+dunce = "1.0"
+libloading = "0.7"
+bytemuck = "1.0"
+parking_lot = "0.12"
