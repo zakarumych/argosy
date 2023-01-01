@@ -6,7 +6,7 @@ use std::{
     time::SystemTime,
 };
 
-use asset_influx_id::AssetId;
+use argosy_id::AssetId;
 use eyre::WrapErr;
 use hashbrown::HashMap;
 use url::Url;

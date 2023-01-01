@@ -1,4 +1,4 @@
-//! Contains everything that is required to create asset influx importers library.
+//! Contains everything that is required to create argosy importers library.
 //!
 //!
 //! # Usage
@@ -6,7 +6,7 @@
 //! ```
 //! struct FooImporter;
 //!
-//! impl asset_influx_import::Importer for FooImporter {
+//! impl argosy_import::Importer for FooImporter {
 //!     fn name(&self) -> &str {
 //!         "Foo importer"
 //!     }
@@ -27,19 +27,19 @@
 //!         &self,
 //!         source: &std::path::Path,
 //!         output: &std::path::Path,
-//!         _sources: &mut dyn asset_influx_import::Sources,
-//!         _dependencies: &mut dyn asset_influx_import::Dependencies,
-//!     ) -> Result<(), asset_influx_import::ImportError> {
+//!         _sources: &mut dyn argosy_import::Sources,
+//!         _dependencies: &mut dyn argosy_import::Dependencies,
+//!     ) -> Result<(), argosy_import::ImportError> {
 //!         match std::fs::copy(source, output) {
 //!           Ok(_) => Ok(()),
-//!           Err(err) => Err(asset_influx_import::ImportError::Other { reason: "SOMETHING WENT WRONG".to_owned() }),
+//!           Err(err) => Err(argosy_import::ImportError::Other { reason: "SOMETHING WENT WRONG".to_owned() }),
 //!         }
 //!     }
 //! }
 //!
 //!
 //! // Define all required exports.
-//! asset_influx_import::make_asset_influx_importers_library! {
+//! argosy_import::make_argosy_importers_library! {
 //!     // Each <expr;> must have type &'static I where I: Importer
 //!     &FooImporter;
 //! }
@@ -98,20 +98,20 @@ pub const MAGIC: u32 = u32::from_le_bytes(*b"TRES");
 /// Accepts repetition of importer expressions of type [`&'static impl Importer`] delimited by ';'.
 ///
 /// This macro must be used exactly once in a library crate.
-/// The library must be compiled as a dynamic library to be loaded by the asset influx.
+/// The library must be compiled as a dynamic library to be loaded by the argosy.
 #[macro_export]
-macro_rules! make_asset_influx_importers_library {
+macro_rules! make_argosy_importers_library {
     ($($importer:expr);* $(;)?) => {
         #[no_mangle]
-        pub static ASSET_INFLUX_DYLIB_MAGIC: u32 = $crate::MAGIC;
+        pub static ARGOSY_DYLIB_MAGIC: u32 = $crate::MAGIC;
 
         #[no_mangle]
-        pub unsafe extern "C" fn asset_influx_importer_ffi_version_minor() -> u32 {
+        pub unsafe extern "C" fn argosy_importer_ffi_version_minor() -> u32 {
             $crate::version()
         }
 
         #[no_mangle]
-        pub unsafe extern "C" fn asset_influx_export_importers(buffer: *mut $crate::ImporterFFI, mut cap: u32) -> u32 {
+        pub unsafe extern "C" fn argosy_export_importers(buffer: *mut $crate::ImporterFFI, mut cap: u32) -> u32 {
             let mut len = 0;
             $(
                 if cap > 0 {

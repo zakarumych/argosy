@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use asset_influx_id::AssetId;
+use argosy_id::AssetId;
 use futures::future::TryJoinAll;
 
 use crate::{

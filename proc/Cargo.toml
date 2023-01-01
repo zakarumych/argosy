@@ -1,13 +1,13 @@
 [package]
-name = "asset-influx-proc"
+name = "argosy-proc"
 version = "0.1.0"
 authors = ["Zakarum <zaq.dev@icloud.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-documentation = "https://docs.rs/asset-influx-proc"
-homepage = "https://github.com/arcana-engine/asset-influx-proc"
-repository = "https://github.com/arcana-engine/asset-influx-proc"
-description = "Proc-macro for \"asset-influx\" crate"
+documentation = "https://docs.rs/argosy-proc"
+homepage = "https://github.com/arcana-engine/argosy-proc"
+repository = "https://github.com/arcana-engine/argosy-proc"
+description = "Proc-macro for 'argosy' crate"
 keywords = ["macro", "derive"]
 
 [lib]

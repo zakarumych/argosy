@@ -10,7 +10,7 @@ use std::{
 };
 
 use ahash::RandomState;
-use asset_influx_id::AssetId;
+use argosy_id::AssetId;
 use futures::future::{BoxFuture, TryFutureExt as _};
 use hashbrown::hash_map::{HashMap, RawEntryMut};
 use parking_lot::{Mutex, MutexGuard};

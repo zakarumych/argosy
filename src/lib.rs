@@ -14,7 +14,7 @@
 //!
 //! ```
 //!
-//! # use goods::*;
+//! # use argosy::*;
 //!
 //! /// Simple deserializable type. Included as-is into generated types for `#[derive(Asset)]` and #[derive(AssetField)].
 //! #[derive(Clone, serde::Deserialize)]
@@ -65,7 +65,7 @@ pub use self::{
         LoaderBuilder, NotFound,
     },
 };
-pub use asset_influx_proc::{Asset, AssetField};
+pub use argosy_proc::{Asset, AssetField};
 
 // Used by generated code.
 #[doc(hidden)]

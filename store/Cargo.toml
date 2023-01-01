@@ -1,20 +1,20 @@
 [package]
-name = "asset-influx-store"
+name = "argosy-store"
 version = "0.1.0"
 edition = "2021"
 authors = ["Zakarum <zaq.dev@icloud.com>"]
 license = "MIT OR Apache-2.0"
-documentation = "https://docs.rs/asset-influx-store"
-homepage = "https://github.com/arcana-engine/asset-influx"
-repository = "https://github.com/arcana-engine/asset-influx"
+documentation = "https://docs.rs/argosy-store"
+homepage = "https://github.com/arcana-engine/argosy"
+repository = "https://github.com/arcana-engine/argosy"
 readme = "../README.md"
 keywords = ["assets", "gamedev"]
 categories = ["game-development"]
-description = "Asset influx storage"
+description = "Argosy storage"
 
 [dependencies]
-asset-influx-import = { version = "=0.1.0", path = "../import", features = ["libloading"] }
-asset-influx-id = { version = "=0.1.0", path = "../id" }
+argosy-import = { version = "=0.1.0", path = "../import", features = ["libloading"] }
+argosy-id = { version = "=0.1.0", path = "../id" }
 
 rand = "0.8"
 hashbrown = { version = "0.13", features = ["serde"] }

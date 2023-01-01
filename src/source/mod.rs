@@ -1,9 +1,9 @@
-#[cfg(feature = "asset_influx")]
-pub mod asset_influx;
+#[cfg(feature = "argosy")]
+pub mod argosy;
 
 use std::error::Error;
 
-use asset_influx_id::AssetId;
+use argosy_id::AssetId;
 use futures::future::BoxFuture;
 
 /// Asset data loaded from [`Source`].

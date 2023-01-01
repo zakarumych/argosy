@@ -240,8 +240,8 @@ fn parse(item: proc_macro::TokenStream) -> syn::Result<Parsed> {
                 let as_type = as_type_arg.as_ref().unwrap_or(ty);
 
                 let kind = match (is_container, is_external) {
-                    (false, true) => quote::quote!(::goods::External),
-                    (true, false) => quote::quote!(::goods::Container),
+                    (false, true) => quote::quote!(::argosy::External),
+                    (true, false) => quote::quote!(::argosy::Container),
                     _ => unreachable!(),
                 };
 
@@ -259,30 +259,30 @@ fn parse(item: proc_macro::TokenStream) -> syn::Result<Parsed> {
 
                         decode_field_errors.extend(quote::quote!(
                             #[error(#decode_error_text)]
-                            #error_variant { source: <#as_type as ::goods::AssetField<#kind>>::DecodeError },
+                            #error_variant { source: <#as_type as ::argosy::AssetField<#kind>>::DecodeError },
                         ));
                         build_field_errors.extend(quote::quote!(
                             #[error(#build_error_text)]
-                            #error_variant { source: <#as_type as ::goods::AssetField<#kind>>::BuildError },
+                            #error_variant { source: <#as_type as ::argosy::AssetField<#kind>>::BuildError },
                         ));
 
                         builder_bounds.extend(
-                            quote::quote!(#as_type: ::goods::AssetFieldBuild<#kind, BuilderGenericParameter>,),
+                            quote::quote!(#as_type: ::argosy::AssetFieldBuild<#kind, BuilderGenericParameter>,),
                         );
                         info_fields.extend(
-                            quote::quote!(pub #ident: <#as_type as ::goods::AssetField<#kind>>::Info,),
+                            quote::quote!(pub #ident: <#as_type as ::argosy::AssetField<#kind>>::Info,),
                         );
                         futures_fields.extend(
-                            quote::quote!(pub #ident: <#as_type as ::goods::AssetField<#kind>>::Fut,),
+                            quote::quote!(pub #ident: <#as_type as ::argosy::AssetField<#kind>>::Fut,),
                         );
                         decoded_fields
-                            .extend(quote::quote!(pub #ident: <#as_type as ::goods::AssetField<#kind>>::Decoded,));
+                            .extend(quote::quote!(pub #ident: <#as_type as ::argosy::AssetField<#kind>>::Decoded,));
                         info_to_futures_fields
-                            .extend(quote::quote!(#ident: <#as_type as ::goods::AssetField<#kind>>::decode(info.#ident, loader),));
+                            .extend(quote::quote!(#ident: <#as_type as ::argosy::AssetField<#kind>>::decode(info.#ident, loader),));
                         futures_to_decoded_fields
                             .extend(quote::quote!(#ident: futures.#ident.await.map_err(|err| #decode_error::#error_variant { source: err })?,));
                         decoded_to_asset_fields
-                            .extend(quote::quote!(#ident: <#ty as ::std::convert::From<#as_type>>::from(<#as_type as ::goods::AssetFieldBuild<#kind, BuilderGenericParameter>>::build(decoded.#ident, builder).map_err(|err| #build_error::#error_variant { source: err })?),));
+                            .extend(quote::quote!(#ident: <#ty as ::std::convert::From<#as_type>>::from(<#as_type as ::argosy::AssetFieldBuild<#kind, BuilderGenericParameter>>::build(decoded.#ident, builder).map_err(|err| #build_error::#error_variant { source: err })?),));
                     }
                     None => {
                         let error_variant =
@@ -298,30 +298,30 @@ fn parse(item: proc_macro::TokenStream) -> syn::Result<Parsed> {
 
                         decode_field_errors.extend(quote::quote!(
                             #[error(#decode_error_text)]
-                            #error_variant { source: <#as_type as ::goods::AssetField<#kind>>::DecodeError },
+                            #error_variant { source: <#as_type as ::argosy::AssetField<#kind>>::DecodeError },
                         ));
                         build_field_errors.extend(quote::quote!(
                             #[error(#build_error_text)]
-                            #error_variant { source: <#as_type as ::goods::AssetField<#kind>>::BuildError },
+                            #error_variant { source: <#as_type as ::argosy::AssetField<#kind>>::BuildError },
                         ));
 
                         builder_bounds.extend(
-                            quote::quote!(#as_type: ::goods::AssetFieldBuild<#kind, BuilderGenericParameter>,),
+                            quote::quote!(#as_type: ::argosy::AssetFieldBuild<#kind, BuilderGenericParameter>,),
                         );
                         info_fields.extend(
-                            quote::quote!(pub <#as_type as ::goods::AssetField<#kind>>::Info,),
+                            quote::quote!(pub <#as_type as ::argosy::AssetField<#kind>>::Info,),
                         );
                         futures_fields.extend(
-                            quote::quote!(pub <#as_type as ::goods::AssetField<#kind>>::Fut,),
+                            quote::quote!(pub <#as_type as ::argosy::AssetField<#kind>>::Fut,),
                         );
                         decoded_fields.extend(
-                            quote::quote!(pub <#as_type as ::goods::AssetField<#kind>>::Decoded,),
+                            quote::quote!(pub <#as_type as ::argosy::AssetField<#kind>>::Decoded,),
                         );
                         info_to_futures_fields
-                            .extend(quote::quote!(<#as_type as ::goods::AssetField<#kind>>::decode(info.#index, loader),));
+                            .extend(quote::quote!(<#as_type as ::argosy::AssetField<#kind>>::decode(info.#index, loader),));
                         futures_to_decoded_fields.extend(quote::quote!(futures.#index.await.map_err(|err| #decode_error::#error_variant { source: err })?,));
                         decoded_to_asset_fields
-                            .extend(quote::quote!(<#ty as ::std::convert::From<#as_type>>::from(<#as_type as ::goods::AssetFieldBuild<#kind, BuilderGenericParameter>>::build(decoded.#index, builder).map_err(|err| #build_error::#error_variant { source: err })?),));
+                            .extend(quote::quote!(<#ty as ::std::convert::From<#as_type>>::from(<#as_type as ::argosy::AssetFieldBuild<#kind, BuilderGenericParameter>>::build(decoded.#index, builder).map_err(|err| #build_error::#error_variant { source: err })?),));
                     }
                 }
             }
@@ -397,11 +397,11 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
 
     let tokens = match data_struct.fields {
         syn::Fields::Unit => quote::quote! {
-            #[derive(::goods::serde::Serialize, ::goods::serde::Deserialize)]
+            #[derive(::argosy::serde::Deserialize)]
             #(#serde_attributes)*
             pub struct #info;
 
-            impl ::goods::TrivialAsset for #ty {
+            impl ::argosy::TrivialAsset for #ty {
                 type Error = ::std::convert::Infallible;
 
                 fn name() -> &'static str {
@@ -413,21 +413,21 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
                 }
             }
 
-            impl ::goods::AssetField<::goods::Container> for #ty {
+            impl ::argosy::AssetField<::argosy::Container> for #ty {
                 type BuildError = ::std::convert::Infallible;
                 type DecodeError = ::std::convert::Infallible;
                 type Info = #info;
                 type Decoded = Self;
                 type Fut = ::std::future::Ready<Result<Self, ::std::convert::Infallible>>;
 
-                fn decode(info: #info, _: &::goods::Loader) -> Self::Fut {
+                fn decode(info: #info, _: &::argosy::Loader) -> Self::Fut {
                     use ::std::{future::ready, result::Result::Ok};
 
                     ready(Ok(#ty))
                 }
             }
 
-            impl<BuilderGenericParameter> ::goods::AssetFieldBuild<::goods::Container, BuilderGenericParameter> for #ty {
+            impl<BuilderGenericParameter> ::argosy::AssetFieldBuild<::argosy::Container, BuilderGenericParameter> for #ty {
                 fn build(decoded: Self, builder: &mut BuilderGenericParameter) -> Result<Self, ::std::convert::Infallible> {
                     ::std::result::Result::Ok(decoded)
                 }
@@ -435,7 +435,7 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
         },
         syn::Fields::Unnamed(_) => todo!("Not yet implemented"),
         syn::Fields::Named(_) if complex => quote::quote! {
-            #[derive(::goods::serde::Serialize, ::goods::serde::Deserialize)]
+            #[derive(::argosy::serde::Deserialize)]
             #(#serde_attributes)*
             pub struct #info { #info_fields }
 
@@ -443,20 +443,20 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
 
             pub struct #decoded { #decoded_fields }
 
-            #[derive(::std::fmt::Debug, ::goods::thiserror::Error)]
+            #[derive(::std::fmt::Debug, ::argosy::thiserror::Error)]
             pub enum #decode_error {
                 #[error("Failed to deserialize asset info. {source:#}")]
-                Info { #[source] source: ::goods::DecodeError },
+                Info { #[source] source: ::argosy::DecodeError },
 
                 #decode_field_errors
             }
 
-            #[derive(::std::fmt::Debug, ::goods::thiserror::Error)]
+            #[derive(::std::fmt::Debug, ::argosy::thiserror::Error)]
             pub enum #build_error {
                 #build_field_errors
             }
 
-            impl ::goods::Asset for #ty {
+            impl ::argosy::Asset for #ty {
                 type BuildError = #build_error;
                 type DecodeError = #decode_error;
                 type Decoded = #decoded;
@@ -466,27 +466,27 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
                     #name
                 }
 
-                fn decode(bytes: ::std::boxed::Box<[u8]>, loader: &::goods::Loader) -> Self::Fut {
-                    use {::std::{boxed::Box, result::Result::{self, Ok, Err}}, ::goods::serde_json::error::Category};
+                fn decode(bytes: ::std::boxed::Box<[u8]>, loader: &::argosy::Loader) -> Self::Fut {
+                    use {::std::{boxed::Box, result::Result::{self, Ok, Err}}, ::argosy::serde_json::error::Category};
 
                     // Zero-length is definitely bincode.
                     let result: Result<#info, #decode_error> = if bytes.is_empty()  {
-                        match ::goods::bincode::deserialize(&*bytes) {
+                        match ::argosy::bincode::deserialize(&*bytes) {
                             Ok(value) => Ok(value),
-                            Err(err) => Err(#decode_error:: Info { source: ::goods::DecodeError::Bincode(err) }),
+                            Err(err) => Err(#decode_error:: Info { source: ::argosy::DecodeError::Bincode(err) }),
                         }
                     } else {
-                        match ::goods::serde_json::from_slice(&*bytes) {
+                        match ::argosy::serde_json::from_slice(&*bytes) {
                             Ok(value) => Ok(value),
                             Err(err) => match err.classify() {
                                 Category::Syntax => {
                                     // That's not json. Bincode then.
-                                    match ::goods::bincode::deserialize(&*bytes) {
+                                    match ::argosy::bincode::deserialize(&*bytes) {
                                         Ok(value) => Ok(value),
-                                        Err(err) => Err(#decode_error:: Info { source: ::goods::DecodeError::Bincode(err) }),
+                                        Err(err) => Err(#decode_error:: Info { source: ::argosy::DecodeError::Bincode(err) }),
                                     }
                                 }
-                                _ => Err(#decode_error::Info { source: ::goods::DecodeError::Json(err) }),
+                                _ => Err(#decode_error::Info { source: ::argosy::DecodeError::Json(err) }),
                             }
                         }
                     };
@@ -505,7 +505,7 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
                 }
             }
 
-            impl<BuilderGenericParameter> ::goods::AssetBuild<BuilderGenericParameter> for #ty
+            impl<BuilderGenericParameter> ::argosy::AssetBuild<BuilderGenericParameter> for #ty
             where
                 #builder_bounds
             {
@@ -516,14 +516,14 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
                 }
             }
 
-            impl ::goods::AssetField<::goods::Container> for #ty {
+            impl ::argosy::AssetField<::argosy::Container> for #ty {
                 type BuildError = #build_error;
                 type DecodeError = #decode_error;
                 type Info = #info;
                 type Decoded = #decoded;
                 type Fut = ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output = Result<#decoded, #decode_error>> + Send>>;
 
-                fn decode(info: #info, loader: &::goods::Loader) -> Self::Fut {
+                fn decode(info: #info, loader: &::argosy::Loader) -> Self::Fut {
                     use ::std::{boxed::Box, result::Result::Ok};
 
                     struct #futures { #futures_fields }
@@ -538,7 +538,7 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
                 }
             }
 
-            impl<BuilderGenericParameter> ::goods::AssetFieldBuild<::goods::Container, BuilderGenericParameter> for #ty
+            impl<BuilderGenericParameter> ::argosy::AssetFieldBuild<::argosy::Container, BuilderGenericParameter> for #ty
             where
                 #builder_bounds
             {
@@ -550,38 +550,38 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
             }
         },
         syn::Fields::Named(_) => quote::quote! {
-            #[derive(::goods::serde::Serialize, ::goods::serde::Deserialize)]
+            #[derive(::argosy::serde::Deserialize)]
             #(#serde_attributes)*
             pub struct #info { #info_fields }
 
-            impl ::goods::TrivialAsset for #ty {
-                type Error = ::goods::DecodeError;
+            impl ::argosy::TrivialAsset for #ty {
+                type Error = ::argosy::DecodeError;
 
                 fn name() -> &'static str {
                     #name
                 }
 
-                fn decode(bytes: ::std::boxed::Box<[u8]>) -> Result<Self, ::goods::DecodeError> {
-                    use {::std::result::Result::{Ok, Err}, ::goods::serde_json::error::Category};
+                fn decode(bytes: ::std::boxed::Box<[u8]>) -> Result<Self, ::argosy::DecodeError> {
+                    use {::std::result::Result::{Ok, Err}, ::argosy::serde_json::error::Category};
 
                     /// Zero-length is definitely bincode.
                     let decoded: #info = if bytes.is_empty()  {
-                        match ::goods::bincode::deserialize(&*bytes) {
+                        match ::argosy::bincode::deserialize(&*bytes) {
                             Ok(value) => value,
-                            Err(err) => return Err(::goods::DecodeError::Bincode(err)),
+                            Err(err) => return Err(::argosy::DecodeError::Bincode(err)),
                         }
                     } else {
-                        match ::goods::serde_json::from_slice(&*bytes) {
+                        match ::argosy::serde_json::from_slice(&*bytes) {
                             Ok(value) => value,
                             Err(err) => match err.classify() {
                                 Category::Syntax => {
                                     // That's not json. Bincode then.
-                                    match ::goods::bincode::deserialize(&*bytes) {
+                                    match ::argosy::bincode::deserialize(&*bytes) {
                                         Ok(value) => value,
-                                        Err(err) => return Err(::goods::DecodeError::Bincode(err)),
+                                        Err(err) => return Err(::argosy::DecodeError::Bincode(err)),
                                     }
                                 }
-                                _ => return Err(::goods::DecodeError::Json(err)),
+                                _ => return Err(::argosy::DecodeError::Json(err)),
                             }
                         }
                     };
@@ -592,14 +592,14 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
                 }
             }
 
-            impl ::goods::AssetField<::goods::Container> for #ty {
+            impl ::argosy::AssetField<::argosy::Container> for #ty {
                 type BuildError = ::std::convert::Infallible;
                 type DecodeError = ::std::convert::Infallible;
                 type Info = #info;
                 type Decoded = Self;
                 type Fut = ::std::future::Ready<Result<Self, ::std::convert::Infallible>>;
 
-                fn decode(info: #info, _: &::goods::Loader) -> Self::Fut {
+                fn decode(info: #info, _: &::argosy::Loader) -> Self::Fut {
                     use ::std::{future::ready, result::Result::Ok};
 
                     let decoded = info;
@@ -610,7 +610,7 @@ fn asset_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
                 }
             }
 
-            impl<BuilderGenericParameter> ::goods::AssetFieldBuild<::goods::Container, BuilderGenericParameter> for #ty {
+            impl<BuilderGenericParameter> ::argosy::AssetFieldBuild<::argosy::Container, BuilderGenericParameter> for #ty {
                 fn build(decoded: Self, builder: &mut BuilderGenericParameter) -> Result<Self, ::std::convert::Infallible> {
                     ::std::result::Result::Ok(decoded)
                 }
@@ -659,25 +659,25 @@ fn asset_field_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
 
     let tokens = match data_struct.fields {
         syn::Fields::Unit => quote::quote! {
-            #[derive(::goods::serde::Serialize, ::goods::serde::Deserialize)]
+            #[derive(::argosy::serde::Serialize, ::argosy::serde::Deserialize)]
             #(#serde_attributes)*
             pub struct #info;
 
-            impl ::goods::AssetField<::goods::Container> for #ty {
+            impl ::argosy::AssetField<::argosy::Container> for #ty {
                 type BuildError = ::std::convert::Infallible;
                 type DecodeError = ::std::convert::Infallible;
                 type Info = #info;
                 type Decoded = Self;
                 type Fut = ::std::future::Ready<Result<Self, ::std::convert::Infallible>>;
 
-                fn decode(info: #info, _: &::goods::Loader) -> Self::Fut {
+                fn decode(info: #info, _: &::argosy::Loader) -> Self::Fut {
                     use ::std::{future::ready, result::Result::Ok};
 
                     ready(Ok(#ty))
                 }
             }
 
-            impl<BuilderGenericParameter> ::goods::AssetFieldBuild<::goods::Container, BuilderGenericParameter> for #ty {
+            impl<BuilderGenericParameter> ::argosy::AssetFieldBuild<::argosy::Container, BuilderGenericParameter> for #ty {
                 fn build(decoded: Self, builder: &mut BuilderGenericParameter) -> Result<Self, ::std::convert::Infallible> {
                     ::std::result::Result::Ok(decoded)
                 }
@@ -686,30 +686,30 @@ fn asset_field_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
 
         syn::Fields::Unnamed(_) => todo!("Not yet implemented"),
         syn::Fields::Named(_) if complex => quote::quote! {
-            #[derive(::goods::serde::Serialize, ::goods::serde::Deserialize)]
+            #[derive(::argosy::serde::Serialize, ::argosy::serde::Deserialize)]
             #(#serde_attributes)*
             pub struct #info { #info_fields }
 
             pub struct #decoded { #decoded_fields }
 
-            #[derive(::std::fmt::Debug, ::goods::thiserror::Error)]
+            #[derive(::std::fmt::Debug, ::argosy::thiserror::Error)]
             pub enum #decode_error {
                 #decode_field_errors
             }
 
-            #[derive(::std::fmt::Debug, ::goods::thiserror::Error)]
+            #[derive(::std::fmt::Debug, ::argosy::thiserror::Error)]
             pub enum #build_error {
                 #build_field_errors
             }
 
-            impl ::goods::AssetField<::goods::Container> for #ty {
+            impl ::argosy::AssetField<::argosy::Container> for #ty {
                 type BuildError = #build_error;
                 type DecodeError = #decode_error;
                 type Info = #info;
                 type Decoded = #decoded;
                 type Fut = ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output = Result<#decoded, #decode_error>> + Send>>;
 
-                fn decode(info: #info, loader: &::goods::Loader) -> Self::Fut {
+                fn decode(info: #info, loader: &::argosy::Loader) -> Self::Fut {
                     use ::std::{boxed::Box, result::Result::Ok};
 
                     struct #futures { #futures_fields }
@@ -724,7 +724,7 @@ fn asset_field_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
                 }
             }
 
-            impl<BuilderGenericParameter> ::goods::AssetFieldBuild<::goods::Container, BuilderGenericParameter> for #ty
+            impl<BuilderGenericParameter> ::argosy::AssetFieldBuild<::argosy::Container, BuilderGenericParameter> for #ty
             where
                 #builder_bounds
             {
@@ -736,18 +736,18 @@ fn asset_field_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
             }
         },
         syn::Fields::Named(_) => quote::quote! {
-            #[derive(::goods::serde::Serialize, ::goods::serde::Deserialize)]
+            #[derive(::argosy::serde::Serialize, ::argosy::serde::Deserialize)]
             #(#serde_attributes)*
             pub struct #info { #info_fields }
 
-            impl ::goods::AssetField<::goods::Container> for #ty {
+            impl ::argosy::AssetField<::argosy::Container> for #ty {
                 type BuildError = ::std::convert::Infallible;
                 type DecodeError = ::std::convert::Infallible;
                 type Info = #info;
                 type Decoded = Self;
                 type Fut = ::std::future::Ready<Result<Self, ::std::convert::Infallible>>;
 
-                fn decode(info: #info, _: &::goods::Loader) -> Self::Fut {
+                fn decode(info: #info, _: &::argosy::Loader) -> Self::Fut {
                     use ::std::{future::ready, result::Result::Ok};
 
                     let decoded = info;
@@ -758,7 +758,7 @@ fn asset_field_impl(parsed: Parsed) -> syn::Result<proc_macro2::TokenStream> {
                 }
             }
 
-            impl<BuilderGenericParameter> ::goods::AssetFieldBuild<::goods::Container, BuilderGenericParameter> for #ty {
+            impl<BuilderGenericParameter> ::argosy::AssetFieldBuild<::argosy::Container, BuilderGenericParameter> for #ty {
                 fn build(decoded: Self, builder: &mut BuilderGenericParameter) -> Result<Self, ::std::convert::Infallible> {
                     ::std::result::Result::Ok(decoded)
                 }

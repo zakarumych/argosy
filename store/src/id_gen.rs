@@ -12,7 +12,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use asset_influx_id::AssetId;
+use argosy_id::AssetId;
 use parking_lot::Mutex;
 
 const STARTING_EPOCH: u64 = 1672520400;

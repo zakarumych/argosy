@@ -7,10 +7,10 @@ use std::{
 };
 
 #[cfg(unix)]
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+use std::os::unix::ffi::OsStrExt;
 
 #[cfg(target_os = "wasi")]
-use std::{ffi::OsStr, os::wasi::ffi::OsStrExt};
+use std::os::wasi::ffi::OsStrExt;
 
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
@@ -28,13 +28,13 @@ use crate::{
 const RESULT_BUF_LEN_START: usize = 1024;
 
 type MagicType = u32;
-const MAGIC_NAME: &'static str = "ASSET_INFLUX_DYLIB_MAGIC";
+const MAGIC_NAME: &'static str = "ARGOSY_DYLIB_MAGIC";
 
 type VersionFnType = unsafe extern "C" fn() -> u32;
-const VERSION_FN_NAME: &'static str = "asset_influx_importer_ffi_version_minor";
+const VERSION_FN_NAME: &'static str = "argosy_importer_ffi_version_minor";
 
 type ExportImportersFnType = unsafe extern "C" fn(buffer: *mut ImporterFFI, count: u32) -> u32;
-const EXPORT_IMPORTERS_FN_NAME: &'static str = "asset_influx_export_importers";
+const EXPORT_IMPORTERS_FN_NAME: &'static str = "argosy_export_importers";
 
 pub struct DylibImporter {
     _path: Arc<Path>,
@@ -287,20 +287,17 @@ impl Display for LoadingError {
             LoadingError::LibLoading(err) => write!(f, "libloading error: {}", err),
             LoadingError::FailedToOpenLibrary => write!(f, "Failed to open library"),
             LoadingError::MagicSymbolNotFound => {
-                write!(f, "'ASSET_INFLUX_DYLIB_MAGIC' symbol not found")
+                write!(f, "'ARGOSY_DYLIB_MAGIC' symbol not found")
             }
             LoadingError::MagicValueMismatch => {
-                write!(f, "'ASSET_INFLUX_DYLIB_MAGIC' value mismatch")
+                write!(f, "'ARGOSY_DYLIB_MAGIC' value mismatch")
             }
             LoadingError::VersionSymbolNotFound => {
-                write!(
-                    f,
-                    "'asset_influx_importer_ffi_version_minor' symbol not found"
-                )
+                write!(f, "'argosy_importer_ffi_version_minor' symbol not found")
             }
             LoadingError::VersionMismatch => write!(f, "Version mismatch"),
             LoadingError::ExportImportersSymbolNotFound => {
-                write!(f, "'asset_influx_export_importers' symbol not found")
+                write!(f, "'argosy_export_importers' symbol not found")
             }
         }
     }

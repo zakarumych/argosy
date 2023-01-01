@@ -1,12 +1,12 @@
 [package]
-name = "asset-influx-id"
+name = "argosy-id"
 version = "0.1.0"
 edition = "2021"
 authors = ["Zakarum <zaq.dev@icloud.com>"]
 license = "MIT OR Apache-2.0"
-documentation = "https://docs.rs/asset-influx-id"
-homepage = "https://github.com/zakarumych/asset-influx"
-repository = "https://github.com/zakarumych/asset-influx"
+documentation = "https://docs.rs/argosy-id"
+homepage = "https://github.com/zakarumych/argosy"
+repository = "https://github.com/zakarumych/argosy"
 readme = "../README.md"
 keywords = ["assets", "gamedev"]
 categories = ["game-development"]

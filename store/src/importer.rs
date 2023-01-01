@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use asset_influx_import::{loading::LoadingError, Importer};
+use argosy_import::{loading::LoadingError, Importer};
 use hashbrown::{hash_map::RawEntryMut, HashMap};
 
 #[derive(Debug, thiserror::Error)]
@@ -27,7 +27,7 @@ impl Importers {
         }
     }
 
-    pub fn register_importer(&mut self, importer: impl asset_influx_import::Importer + 'static) {
+    pub fn register_importer(&mut self, importer: impl argosy_import::Importer + 'static) {
         self.add_importer(importer);
     }
 
@@ -36,7 +36,7 @@ impl Importers {
     /// Some measures to ensure safety are taken.
     /// Providing dylib from which importers will be successfully imported and then cause an UB should possible only on purpose.
     pub unsafe fn load_dylib_importers(&mut self, lib_path: &Path) -> Result<(), LoadingError> {
-        let iter = asset_influx_import::loading::load_importers(lib_path)?;
+        let iter = argosy_import::loading::load_importers(lib_path)?;
 
         for importer in iter {
             self.add_importer(importer);

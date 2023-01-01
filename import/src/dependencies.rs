@@ -1,4 +1,4 @@
-use asset_influx_id::AssetId;
+use argosy_id::AssetId;
 
 #[derive(Debug)]
 pub struct Dependency {

@@ -1,10 +1,13 @@
 use std::{mem::size_of, path::PathBuf};
 
+#[cfg(any(unix, target_os = "wasi"))]
+use std::ffi::{OsStr, OsString};
+
 #[cfg(unix)]
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
 #[cfg(target_os = "wasi")]
-use std::{ffi::OsStr, os::wasi::ffi::OsStrExt};
+use std::os::wasi::ffi::{OsStrExt, OsStringExt};
 
 #[cfg(windows)]
 use std::{
@@ -12,7 +15,7 @@ use std::{
     os::windows::ffi::{OsStrExt, OsStringExt},
 };
 
-use asset_influx_id::AssetId;
+use argosy_id::AssetId;
 
 use crate::{
     dependencies::Dependencies,

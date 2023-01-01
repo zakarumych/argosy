@@ -1,23 +1,23 @@
 [package]
-name = "asset-influx"
+name = "argosy"
 version = "0.1.0"
 authors = ["Zakarum <zaq.dev@icloud.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-documentation = "https://docs.rs/asset-influx"
-homepage = "https://github.com/arcana-engine/asset-influx"
-repository = "https://github.com/arcana-engine/asset-influx"
+documentation = "https://docs.rs/argosy"
+homepage = "https://github.com/arcana-engine/argosy"
+repository = "https://github.com/arcana-engine/argosy"
 description = "Async assets system"
 keywords = ["async", "assets", "macro", "derive"]
 categories = ["asynchronous", "game-development"]
 
 [features]
-store = ["asset-influx-store", "eyre", "url", "dunce"]
+store = ["argosy-store", "eyre", "url", "dunce"]
 
 [dependencies]
-asset-influx-id = { version = "=0.1.0", path = "id" }
-asset-influx-proc = { version = "=0.1.0", path = "proc" }
-asset-influx-store = { version = "=0.1.0", path = "store", optional = true }
+argosy-proc = { version = "=0.1.0", path = "proc" }
+argosy-id = { version = "=0.1.0", path = "id" }
+argosy-store = { version = "=0.1.0", path = "store", optional = true }
 thiserror = "1.0"
 smallvec = "1.7"
 serde = { version = "1.0", features = ["derive"] }
@@ -36,3 +36,4 @@ url = { version = "2.2", optional = true }
 dunce =  { version = "1.0", optional = true }
 
 [workspace]
+members = ["id", "import", "store"]

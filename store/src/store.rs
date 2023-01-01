@@ -4,8 +4,8 @@ use std::{
     time::SystemTime,
 };
 
-use asset_influx_id::AssetId;
-use asset_influx_import::{loading::LoadingError, ImportError, Importer};
+use argosy_id::AssetId;
+use argosy_import::{loading::LoadingError, ImportError, Importer};
 use eyre::WrapErr;
 use hashbrown::{HashMap, HashSet};
 use parking_lot::RwLock;
@@ -19,9 +19,9 @@ use crate::{
     temp::Temporaries,
 };
 
-pub const ASSET_INFLUX_META_NAME: &'static str = "influx.toml";
+pub const ARGOSY_META_NAME: &'static str = "argosy.toml";
 
-const DEFAULT_AUX: &'static str = "influx";
+const DEFAULT_AUX: &'static str = "argosy";
 const DEFAULT_ARTIFACTS: &'static str = "artifacts";
 const DEFAULT_EXTERNAL: &'static str = "external";
 const MAX_ITEM_ATTEMPTS: u32 = 1024;
@@ -107,10 +107,10 @@ impl Store {
         let path = dunce::canonicalize(path)?;
         let err = format!(
             "Failed to find `{}` in ancestors of {}",
-            ASSET_INFLUX_META_NAME,
+            ARGOSY_META_NAME,
             path.display(),
         );
-        let meta_path = find_asset_influx_info(path).ok_or_else(|| eyre::eyre!(err))?;
+        let meta_path = find_argosy_info(path).ok_or_else(|| eyre::eyre!(err))?;
 
         Store::open(&meta_path)
     }
@@ -317,7 +317,7 @@ impl Store {
 
             struct Fn<F>(F);
 
-            impl<F> asset_influx_import::Sources for Fn<F>
+            impl<F> argosy_import::Sources for Fn<F>
             where
                 F: FnMut(&str) -> Option<PathBuf>,
             {
@@ -326,7 +326,7 @@ impl Store {
                 }
             }
 
-            impl<F> asset_influx_import::Dependencies for Fn<F>
+            impl<F> argosy_import::Dependencies for Fn<F>
             where
                 F: FnMut(&str, &str) -> Option<AssetId>,
             {
@@ -577,9 +577,9 @@ impl Store {
     }
 }
 
-pub fn find_asset_influx_info(mut path: PathBuf) -> Option<PathBuf> {
+pub fn find_argosy_info(mut path: PathBuf) -> Option<PathBuf> {
     loop {
-        path.push(ASSET_INFLUX_META_NAME);
+        path.push(ARGOSY_META_NAME);
         if path.is_file() {
             return Some(path);
         }

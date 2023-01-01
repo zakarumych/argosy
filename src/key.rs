@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use asset_influx_id::AssetId;
+use argosy_id::AssetId;
 
 use crate::Asset;
 
