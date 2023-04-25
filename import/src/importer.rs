@@ -2,16 +2,16 @@ use std::path::Path;
 
 use crate::{Dependencies, Dependency, Sources};
 
-/// Result of `Importer::import` method.
+/// Error of `Importer::import` method.
 pub enum ImportError {
-    /// Importer requires data from other sources.
-    RequireSources {
-        /// URLs relative to source path.
+    /// Importer requires data.
+    Requires {
+        /// Required sources to build this asset.
         sources: Vec<String>,
-    },
 
-    /// Importer requires following dependencies.
-    RequireDependencies { dependencies: Vec<Dependency> },
+        /// Assets this asset depends on.
+        dependencies: Vec<Dependency>,
+    },
 
     /// Importer failed to import the asset.
     Other {
@@ -25,7 +25,7 @@ pub trait Importer: Send + Sync {
     /// Returns name of the importer
     fn name(&self) -> &str;
 
-    /// Returns source format importer works with.
+    /// Returns source formats importer works with.
     fn formats(&self) -> &[&str];
 
     /// Returns list of extensions for source formats.
@@ -35,11 +35,14 @@ pub trait Importer: Send + Sync {
     fn target(&self) -> &str;
 
     /// Reads data from `source` path and writes result at `output` path.
+    /// Implementation may request additional sources and dependencies.
+    /// If some are missing it **should** return `Err(ImportError::Requires { .. })`
+    /// with as much information as possible.
     fn import(
         &self,
         source: &Path,
         output: &Path,
-        sources: &mut dyn Sources,
-        dependencies: &mut dyn Dependencies,
+        sources: &mut impl Sources,
+        dependencies: &mut impl Dependencies,
     ) -> Result<(), ImportError>;
 }

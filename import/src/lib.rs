@@ -61,23 +61,15 @@ pub use self::{
     sources::Sources,
 };
 
-/// Helper function to emit an error if some dependencies are missing.
-pub fn ensure_dependencies(missing: Vec<Dependency>) -> Result<(), ImportError> {
-    if missing.is_empty() {
+/// Helper function to emit an error if sources or dependencies are missing.
+pub fn ensure(sources: Vec<String>, dependencies: Vec<Dependency>) -> Result<(), ImportError> {
+    if sources.is_empty() && dependencies.is_empty() {
         Ok(())
     } else {
-        Err(ImportError::RequireDependencies {
-            dependencies: missing,
+        Err(ImportError::Requires {
+            sources,
+            dependencies,
         })
-    }
-}
-
-/// Helper function to emit an error if some sources are missing.
-pub fn ensure_sources(missing: Vec<String>) -> Result<(), ImportError> {
-    if missing.is_empty() {
-        Ok(())
-    } else {
-        Err(ImportError::RequireSources { sources: missing })
     }
 }
 

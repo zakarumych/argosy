@@ -1,31 +1,40 @@
 use argosy_id::AssetId;
 
+/// Single dependency for a asset.
 #[derive(Debug)]
 pub struct Dependency {
+    /// Source path.
     pub source: String,
+
+    /// Target format.
     pub target: String,
 }
 
+/// Provides access to asset dependencies.
+/// Converts source and target to asset id.
 pub trait Dependencies {
     /// Returns dependency id.
-    fn get(&mut self, source: &str, target: &str) -> Result<Option<AssetId>, String>;
+    /// If dependency is not available, returns `None`.
+    fn get(&mut self, source: &str, target: &str) -> Option<AssetId>;
 
+    /// Returns dependency id.
+    /// If dependency is not available,
+    /// append it to the missing list and returns `None`.
     fn get_or_append(
         &mut self,
         source: &str,
         target: &str,
         missing: &mut Vec<Dependency>,
-    ) -> Result<Option<AssetId>, String> {
+    ) -> Option<AssetId> {
         match self.get(source, target) {
-            Err(err) => Err(err),
-            Ok(Some(id)) => Ok(Some(id)),
-            Ok(None) => {
+            None => {
                 missing.push(Dependency {
                     source: source.to_owned(),
                     target: target.to_owned(),
                 });
-                Ok(None)
+                None
             }
+            Some(id) => Some(id),
         }
     }
 }

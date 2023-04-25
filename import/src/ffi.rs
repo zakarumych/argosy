@@ -26,8 +26,7 @@ use crate::{
 const PATH_BUF_LEN_START: usize = 1024;
 pub const ANY_BUF_LEN_LIMIT: usize = 65536;
 
-pub const REQUIRE_SOURCES: i32 = 2;
-pub const REQUIRE_DEPENDENCIES: i32 = 1;
+pub const REQUIRES: i32 = 1;
 pub const SUCCESS: i32 = 0;
 pub const NOT_FOUND: i32 = -1;
 pub const NOT_UTF8: i32 = -2;
@@ -52,7 +51,7 @@ pub type DependenciesGetFn = unsafe extern "C" fn(
     id_ptr: *mut u64,
 ) -> i32;
 
-unsafe extern "C" fn dependencies_get_ffi(
+unsafe extern "C" fn dependencies_get_ffi<D: Dependencies>(
     dependencies: *mut DependenciesOpaque,
     source_ptr: *const u8,
     source_len: u32,
@@ -72,13 +71,11 @@ unsafe extern "C" fn dependencies_get_ffi(
             Err(_) => return NOT_UTF8,
         };
 
-    let f = dependencies as *mut DynDependencies;
-    let f = &mut *f;
+    let d = &mut *(dependencies as *mut D);
 
-    match f.get(source, target) {
-        Err(_) => return OTHER_ERROR,
-        Ok(None) => return NOT_FOUND,
-        Ok(Some(id)) => {
+    match d.get(source, target) {
+        None => return NOT_FOUND,
+        Some(id) => {
             std::ptr::write(id_ptr, id.value().get());
             return SUCCESS;
         }
@@ -90,31 +87,17 @@ pub struct DependenciesFFI {
     pub get: DependenciesGetFn,
 }
 
-pub struct DynDependencies<'a> {
-    dependencies: &'a mut dyn Dependencies,
-}
-
-impl<'a> DynDependencies<'a> {
-    pub fn new(dependencies: &'a mut dyn Dependencies) -> Self {
-        DynDependencies { dependencies }
-    }
-
-    fn get(&mut self, source: &str, target: &str) -> Result<Option<AssetId>, String> {
-        self.dependencies.get(source, target)
-    }
-}
-
 impl DependenciesFFI {
-    pub fn new(dependencies: &mut DynDependencies) -> Self {
+    pub fn new<D: Dependencies>(dependencies: &mut D) -> Self {
         DependenciesFFI {
-            opaque: dependencies as *mut DynDependencies as _,
-            get: dependencies_get_ffi,
+            opaque: (dependencies as *mut D) as *mut DependenciesOpaque,
+            get: dependencies_get_ffi::<D>,
         }
     }
 }
 
 impl Dependencies for DependenciesFFI {
-    fn get(&mut self, source: &str, target: &str) -> Result<Option<AssetId>, String> {
+    fn get(&mut self, source: &str, target: &str) -> Option<AssetId> {
         let mut id = 0u64;
         let result = unsafe {
             (self.get)(
@@ -129,16 +112,12 @@ impl Dependencies for DependenciesFFI {
 
         match result {
             SUCCESS => match AssetId::new(id) {
-                None => Err(format!("Null AssetId returned from `Dependencies::get`")),
-                Some(id) => Ok(Some(id)),
+                None => panic!("Null AssetId returned from `Dependencies::get`"),
+                Some(id) => Some(id),
             },
-            NOT_FOUND => Ok(None),
-            NOT_UTF8 => Err(format!("Source is not UTF8 while stored in `str`")),
-
-            _ => Err(format!(
-                "Unexpected return code from `Sources::get` FFI: {}",
-                result
-            )),
+            NOT_FOUND => None,
+            NOT_UTF8 => panic!("Source is not UTF8 while stored in `str`"),
+            _ => panic!("Unexpected return code from `Sources::get` FFI: {}", result),
         }
     }
 }
@@ -154,7 +133,7 @@ pub type SourcesGetFn = unsafe extern "C" fn(
     path_len: *mut u32,
 ) -> i32;
 
-unsafe extern "C" fn sources_get_ffi<'a>(
+unsafe extern "C" fn sources_get_ffi<'a, S: Sources>(
     sources: *mut SourcesOpaque,
     source_ptr: *const u8,
     source_len: u32,
@@ -167,13 +146,11 @@ unsafe extern "C" fn sources_get_ffi<'a>(
             Err(_) => return NOT_UTF8,
         };
 
-    let f = sources as *mut DynSource;
-    let f = &mut *f;
+    let f = &mut *(sources as *mut S);
 
     match f.get(source) {
-        Err(_) => return OTHER_ERROR,
-        Ok(None) => return NOT_FOUND,
-        Ok(Some(path)) => {
+        None => return NOT_FOUND,
+        Some(path) => {
             let os_str = path.as_os_str();
 
             #[cfg(any(unix, target_os = "wasi"))]
@@ -203,36 +180,32 @@ pub struct SourcesFFI {
     pub get: SourcesGetFn,
 }
 
-pub struct DynSource<'a> {
-    sources: &'a mut dyn Sources,
-}
-
-impl<'a> DynSource<'a> {
-    pub fn new(sources: &'a mut dyn Sources) -> Self {
-        DynSource { sources }
-    }
-
-    fn get(&mut self, source: &str) -> Result<Option<PathBuf>, String> {
-        self.sources.get(source)
-    }
-}
-
 impl SourcesFFI {
-    pub fn new<'a>(sources: &mut DynSource) -> Self {
+    pub fn new<'a, S: Sources>(sources: &mut S) -> Self {
         SourcesFFI {
-            opaque: sources as *const DynSource as _,
-            get: sources_get_ffi,
+            opaque: sources as *const S as _,
+            get: sources_get_ffi::<S>,
         }
     }
 }
 
 impl Sources for SourcesFFI {
-    fn get(&mut self, source: &str) -> Result<Option<PathBuf>, String> {
+    fn get(&mut self, source: &str) -> Option<PathBuf> {
         let mut path_buf = vec![0; PATH_BUF_LEN_START];
-        let mut path_len = path_buf.len() as u32;
+        let mut path_len = PATH_BUF_LEN_START as u32;
+        let mut result = BUFFER_IS_TOO_SMALL;
 
-        loop {
-            let result = unsafe {
+        while result == BUFFER_IS_TOO_SMALL {
+            if path_len > ANY_BUF_LEN_LIMIT as u32 {
+                panic!(
+                    "Source path does not fit into limit '{}', '{}' required",
+                    ANY_BUF_LEN_LIMIT, path_len
+                );
+            }
+
+            path_buf.resize(path_len as usize, 0);
+
+            result = unsafe {
                 (self.get)(
                     self.opaque,
                     source.as_ptr(),
@@ -241,36 +214,23 @@ impl Sources for SourcesFFI {
                     &mut path_len,
                 )
             };
+        }
 
-            if result == BUFFER_IS_TOO_SMALL {
-                if path_len > ANY_BUF_LEN_LIMIT as u32 {
-                    return Err(format!(
-                        "Source path does not fit into limit '{}', '{}' required",
-                        ANY_BUF_LEN_LIMIT, path_len
-                    ));
-                }
+        path_buf.truncate(path_len as usize);
 
-                path_buf.resize(path_len as usize, 0);
-                continue;
+        match result {
+            SUCCESS => {
+                #[cfg(any(unix, target_os = "wasi"))]
+                let path = OsString::from_vec(path_buf).into();
+
+                #[cfg(windows)]
+                let path = OsString::from_wide(&path_buf).into();
+
+                Some(path)
             }
-
-            return match result {
-                SUCCESS => {
-                    #[cfg(any(unix, target_os = "wasi"))]
-                    let path = OsString::from_vec(path_buf).into();
-
-                    #[cfg(windows)]
-                    let path = OsString::from_wide(&path_buf).into();
-
-                    Ok(Some(path))
-                }
-                NOT_FOUND => return Ok(None),
-                NOT_UTF8 => Err(format!("Source is not UTF8 while stored in `str`")),
-                _ => Err(format!(
-                    "Unexpected return code from `Sources::get` FFI: {}",
-                    result
-                )),
-            };
+            NOT_FOUND => None,
+            NOT_UTF8 => panic!("Source is not UTF8 while stored in `str`"),
+            _ => panic!("Unexpected return code from `Sources::get` FFI: {}", result),
         }
     }
 }
@@ -292,7 +252,7 @@ pub type ImporterImportFn = unsafe extern "C" fn(
     result_len: *mut u32,
 ) -> i32;
 
-unsafe extern "C" fn importer_import_ffi<I>(
+unsafe extern "C" fn importer_import_ffi<I: Importer>(
     importer: *const ImporterOpaque,
     source_ptr: *const OsChar,
     source_len: u32,
@@ -304,10 +264,7 @@ unsafe extern "C" fn importer_import_ffi<I>(
     dependencies_get: DependenciesGetFn,
     result_ptr: *mut u8,
     result_len: *mut u32,
-) -> i32
-where
-    I: Importer,
-{
+) -> i32 {
     let source = std::slice::from_raw_parts(source_ptr, source_len as usize);
     let output = std::slice::from_raw_parts(output_ptr, output_len as usize);
 
@@ -341,11 +298,20 @@ where
 
     match result {
         Ok(()) => SUCCESS,
-        Err(ImportError::RequireSources { sources }) => {
+        Err(ImportError::Requires {
+            sources,
+            dependencies,
+        }) => {
             let len_required = sources
                 .iter()
-                .fold(0, |acc, p| acc + p.len() + size_of::<u32>())
-                + size_of::<u32>();
+                .map(|s| s.len() + size_of::<u32>())
+                .chain(
+                    dependencies
+                        .iter()
+                        .map(|d| d.source.len() + d.target.len() + size_of::<[u32; 2]>()),
+                )
+                .sum::<usize>()
+                + size_of::<[u32; 2]>();
 
             assert!(u32::try_from(len_required).is_ok());
 
@@ -354,81 +320,22 @@ where
                 return BUFFER_IS_TOO_SMALL;
             }
 
-            std::ptr::copy_nonoverlapping(
-                (sources.len() as u32).to_le_bytes().as_ptr(),
-                result_ptr,
-                size_of::<u32>(),
-            );
+            let result = std::slice::from_raw_parts_mut(result_ptr, len_required);
+            let mut offset = 0;
 
-            let mut offset = size_of::<u32>();
-
-            for url in &sources {
-                let len = url.len();
-
-                std::ptr::copy_nonoverlapping(
-                    (len as u32).to_le_bytes().as_ptr(),
-                    result_ptr.add(offset),
-                    size_of::<u32>(),
-                );
-                offset += size_of::<u32>();
-
-                std::ptr::copy_nonoverlapping(
-                    url.as_ptr(),
-                    result_ptr.add(offset),
-                    len as u32 as usize,
-                );
-                offset += len;
+            write_u32(result, &mut offset, source.len() as u32);
+            for source in sources {
+                write_slice(result, &mut offset, source.as_bytes());
             }
 
-            debug_assert_eq!(len_required, offset);
+            write_u32(result, &mut offset, dependencies.len() as u32);
+            for dependency in dependencies {
+                write_slice(result, &mut offset, dependency.source.as_bytes());
+                write_slice(result, &mut offset, dependency.target.as_bytes());
+            }
 
             *result_len = len_required as u32;
-            REQUIRE_SOURCES
-        }
-        Err(ImportError::RequireDependencies { dependencies }) => {
-            let len_required = dependencies.iter().fold(0, |acc, dep| {
-                acc + dep.source.len() + dep.target.len() + size_of::<u32>() * 2
-            }) + size_of::<u32>();
-
-            assert!(u32::try_from(len_required).is_ok());
-
-            if *result_len < len_required as u32 {
-                *result_len = len_required as u32;
-                return BUFFER_IS_TOO_SMALL;
-            }
-
-            std::ptr::copy_nonoverlapping(
-                (dependencies.len() as u32).to_le_bytes().as_ptr(),
-                result_ptr,
-                size_of::<u32>(),
-            );
-
-            let mut offset = size_of::<u32>();
-
-            for dep in &dependencies {
-                for s in [&dep.source, &dep.target] {
-                    let len = s.len();
-
-                    std::ptr::copy_nonoverlapping(
-                        (len as u32).to_le_bytes().as_ptr(),
-                        result_ptr.add(offset),
-                        size_of::<u32>(),
-                    );
-                    offset += size_of::<u32>();
-
-                    std::ptr::copy_nonoverlapping(
-                        s.as_ptr(),
-                        result_ptr.add(offset),
-                        len as u32 as usize,
-                    );
-                    offset += len;
-                }
-            }
-
-            debug_assert_eq!(len_required, offset);
-
-            *result_len = len_required as u32;
-            REQUIRE_DEPENDENCIES
+            REQUIRES
         }
         Err(ImportError::Other { reason }) => {
             if *result_len < reason.len() as u32 {
@@ -556,4 +463,15 @@ impl ImporterFFI {
             extensions: extensions_buf,
         }
     }
+}
+
+fn write_u32(buffer: &mut [u8], offset: &mut usize, value: u32) {
+    buffer[*offset..][..4].copy_from_slice(&value.to_le_bytes());
+    *offset += 4;
+}
+
+fn write_slice(buffer: &mut [u8], offset: &mut usize, value: &[u8]) {
+    write_u32(buffer, offset, value.len() as u32);
+    buffer[*offset..][..4].copy_from_slice(value);
+    *offset += value.len();
 }

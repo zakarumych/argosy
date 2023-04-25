@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use argosy_import::{loading::LoadingError, Importer};
+use argosy_import::{loading::LoadingError, Importer, ImporterFFI};
 use hashbrown::{hash_map::RawEntryMut, HashMap};
 
 #[derive(Debug, thiserror::Error)]
@@ -11,7 +11,7 @@ pub struct CannotDecideOnImporter {
 }
 
 struct ToTarget {
-    importers: Vec<Box<dyn Importer>>,
+    importers: Vec<ImporterFFI>,
     formats: HashMap<String, usize>,
     extensions: HashMap<String, usize>,
 }
@@ -51,7 +51,7 @@ impl Importers {
         format: Option<&str>,
         extension: Option<&str>,
         target: &str,
-    ) -> Result<Option<&dyn Importer>, CannotDecideOnImporter> {
+    ) -> Result<Option<&impl Importer>, CannotDecideOnImporter> {
         tracing::debug!("Guessing importer to '{}'", target);
 
         let to_target = self.targets.get(target);
@@ -67,7 +67,7 @@ impl Importers {
                         0 => {
                             unreachable!()
                         }
-                        1 => Ok(Some(&*to_target.importers[0])),
+                        1 => Ok(Some(&to_target.importers[0])),
                         _ => {
                             tracing::debug!("Multiple importers to '{}' found", target);
                             Err(CannotDecideOnImporter {
@@ -78,12 +78,12 @@ impl Importers {
                     },
                     Some(extension) => match to_target.extensions.get(extension) {
                         None => Ok(None),
-                        Some(&idx) => Ok(Some(&*to_target.importers[idx])),
+                        Some(&idx) => Ok(Some(&to_target.importers[idx])),
                     },
                 },
                 Some(format) => match to_target.formats.get(format) {
                     None => Ok(None),
-                    Some(&idx) => Ok(Some(&*to_target.importers[idx])),
+                    Some(&idx) => Ok(Some(&to_target.importers[idx])),
                 },
             },
         }

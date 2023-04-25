@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     fmt::{self, Display},
-    mem::{size_of, MaybeUninit},
+    mem::MaybeUninit,
     path::Path,
     sync::Arc,
 };
@@ -17,15 +17,15 @@ use std::os::windows::ffi::OsStrExt;
 
 use crate::{
     ffi::{
-        DependenciesFFI, DynDependencies, DynSource, ImporterFFI, ImporterImportFn, ImporterOpaque,
-        SourcesFFI, ANY_BUF_LEN_LIMIT, BUFFER_IS_TOO_SMALL, MAX_EXTENSION_COUNT, MAX_FFI_NAME_LEN,
-        MAX_FORMATS_COUNT, OTHER_ERROR, REQUIRE_DEPENDENCIES, REQUIRE_SOURCES, SUCCESS,
+        DependenciesFFI, ImporterFFI, ImporterImportFn, ImporterOpaque, SourcesFFI,
+        ANY_BUF_LEN_LIMIT, BUFFER_IS_TOO_SMALL, MAX_EXTENSION_COUNT, MAX_FFI_NAME_LEN,
+        MAX_FORMATS_COUNT, OTHER_ERROR, REQUIRES, SUCCESS,
     },
     importer::Importer,
     version, Dependencies, Dependency, ImportError, Sources, MAGIC,
 };
 
-const RESULT_BUF_LEN_START: usize = 1024;
+const RESULT_BUF_LEN_START: usize = 8192;
 
 type MagicType = u32;
 const MAGIC_NAME: &'static str = "ARGOSY_DYLIB_MAGIC";
@@ -101,8 +101,8 @@ impl Importer for DylibImporter {
         &self,
         source: &Path,
         output: &Path,
-        sources: &mut dyn Sources,
-        dependencies: &mut dyn Dependencies,
+        sources: &mut impl Sources,
+        dependencies: &mut impl Dependencies,
     ) -> Result<(), ImportError> {
         let os_str = source.as_os_str();
 
@@ -126,17 +126,25 @@ impl Importer for DylibImporter {
         #[cfg(windows)]
         let output: &[u16] = &*os_str_wide;
 
-        let mut sources = DynSource::new(sources);
-        let sources = SourcesFFI::new(&mut sources);
+        let sources = SourcesFFI::new(sources);
+        let dependencies = DependenciesFFI::new(dependencies);
 
-        let mut dependencies = DynDependencies::new(dependencies);
-        let dependencies = DependenciesFFI::new(&mut dependencies);
+        let mut result_buf = Vec::new();
+        let mut result_len = RESULT_BUF_LEN_START as u32;
+        let mut result = BUFFER_IS_TOO_SMALL;
 
-        let mut result_buf = vec![0; RESULT_BUF_LEN_START];
-        let mut result_len = result_buf.len() as u32;
+        while result == BUFFER_IS_TOO_SMALL {
+            if result_len > ANY_BUF_LEN_LIMIT as u32 {
+                return Err(ImportError::Other {
+                    reason: format!(
+                        "Result does not fit into limit '{}', '{}' required",
+                        ANY_BUF_LEN_LIMIT, result_len
+                    ),
+                });
+            }
+            result_buf.resize(result_len as usize, 0);
 
-        let result = loop {
-            let result = unsafe {
+            result = unsafe {
                 (self.import)(
                     self.importer,
                     source.as_ptr(),
@@ -151,105 +159,43 @@ impl Importer for DylibImporter {
                     &mut result_len,
                 )
             };
-
-            if result == BUFFER_IS_TOO_SMALL {
-                if result_len > ANY_BUF_LEN_LIMIT as u32 {
-                    return Err(ImportError::Other {
-                        reason: format!(
-                            "Result does not fit into limit '{}', '{}' required",
-                            ANY_BUF_LEN_LIMIT, result_len
-                        ),
-                    });
-                }
-
-                result_buf.resize(result_len as usize, 0);
-            }
-            break result;
-        };
+        }
 
         match result {
             SUCCESS => Ok(()),
-            REQUIRE_SOURCES => unsafe {
-                let mut u32buf = [0; size_of::<u32>()];
-                std::ptr::copy_nonoverlapping(
-                    result_buf[..size_of::<u32>()].as_ptr(),
-                    u32buf.as_mut_ptr(),
-                    size_of::<u32>(),
-                );
-                let count = u32::from_le_bytes(u32buf);
-
-                let mut offset = size_of::<u32>();
-
+            REQUIRES => {
                 let mut sources = Vec::new();
-                for _ in 0..count {
-                    std::ptr::copy_nonoverlapping(
-                        result_buf[offset..][..size_of::<u32>()].as_ptr(),
-                        u32buf.as_mut_ptr(),
-                        size_of::<u32>(),
-                    );
-                    offset += size_of::<u32>();
-                    let len = u32::from_le_bytes(u32buf);
-                    let mut source = vec![0; len as usize];
-                    std::ptr::copy_nonoverlapping(
-                        result_buf[offset..][..len as usize].as_ptr(),
-                        source.as_mut_ptr(),
-                        len as usize,
-                    );
-                    offset += len as usize;
-                    match String::from_utf8(source) {
-                            Ok(source) => sources.push(source),
-                            Err(_) => return Err(ImportError::Other {
-                                reason: "`Importer::import` requires sources, but one of the sources is not UTF-8"
-                                    .to_owned(),
-                            }),
-                        }
-                }
-
-                Err(ImportError::RequireSources { sources })
-            },
-            REQUIRE_DEPENDENCIES => unsafe {
-                let mut u32buf = [0; size_of::<u32>()];
-                std::ptr::copy_nonoverlapping(
-                    result_buf[..size_of::<u32>()].as_ptr(),
-                    u32buf.as_mut_ptr(),
-                    size_of::<u32>(),
-                );
-                let count = u32::from_le_bytes(u32buf);
-                let mut offset = size_of::<u32>();
-
                 let mut dependencies = Vec::new();
-                for _ in 0..count {
-                    let mut decode_string = || {
-                        std::ptr::copy_nonoverlapping(
-                            result_buf[offset..][..size_of::<u32>()].as_ptr(),
-                            u32buf.as_mut_ptr(),
-                            size_of::<u32>(),
-                        );
-                        offset += size_of::<u32>();
-                        let len = u32::from_le_bytes(u32buf);
 
-                        let mut string = vec![0; len as usize];
-                        std::ptr::copy_nonoverlapping(
-                            result_buf[offset..][..len as usize].as_ptr(),
-                            string.as_mut_ptr(),
-                            len as usize,
-                        );
-                        offset += len as usize;
+                let mut buffer = &result_buf[..result_len as usize];
 
-                        match String::from_utf8(string) {
-                                Ok(string) => Ok(string),
-                                Err(_) => return Err(ImportError::Other { reason: "`Importer::import` requires dependencies, but one of the strings is not UTF-8".to_owned() }),
-                            }
+                let source_count = read_u32(&mut buffer);
+                for _ in 0..source_count {
+                    let Ok(source) = core::str::from_utf8(read_slice(&mut buffer)) else {
+                        return Err(ImportError::Other { reason: "`Importer::import` requires sources, but one of the strings is not UTF-8".to_owned() });
                     };
 
-                    let source = decode_string()?;
-                    let target = decode_string()?;
-
-                    dependencies.push(Dependency { source, target });
+                    sources.push(source.into());
                 }
 
-                Err(ImportError::RequireDependencies { dependencies })
-            },
+                let dependency_count = read_u32(&mut buffer);
+                for _ in 0..dependency_count {
+                    let Ok(source) = core::str::from_utf8(read_slice(&mut buffer)) else {
+                        return Err(ImportError::Other { reason: "`Importer::import` requires dependencies, but one of the strings is not UTF-8".to_owned() });
+                    };
+                    let Ok(target) = core::str::from_utf8(read_slice(&mut buffer)) else {
+                        return Err(ImportError::Other { reason: "`Importer::import` requires dependencies, but one of the strings is not UTF-8".to_owned() });
+                    };
+                    dependencies.push(Dependency {
+                        source: source.into(),
+                        target: target.into(),
+                    });
+                }
+                Err(ImportError::Requires {
+                    sources,
+                    dependencies,
+                })
+            }
             OTHER_ERROR => {
                 debug_assert!(result_len <= result_buf.len() as u32);
 
@@ -371,4 +317,18 @@ pub unsafe fn load_importers(
         let ffi: ImporterFFI = importer.assume_init();
         DylibImporter::new(ffi, lib_path.clone(), lib.clone())
     }))
+}
+
+fn read_u32(buffer: &mut &[u8]) -> u32 {
+    let mut array = [0; 4];
+    array.copy_from_slice(&buffer[..4]);
+    *buffer = &buffer[4..];
+    u32::from_le_bytes(array)
+}
+
+fn read_slice<'a>(buffer: &mut &'a [u8]) -> &'a [u8] {
+    let len = read_u32(buffer) as usize;
+    let slice = &buffer[..len];
+    *buffer = &buffer[len..];
+    slice
 }
