@@ -20,6 +20,7 @@ pub struct TypedAssetId<A> {
 }
 
 impl<A> TypedAssetId<A> {
+    #[inline]
     pub const fn new(value: u64) -> Option<Self> {
         match AssetId::new(value) {
             None => None,
@@ -32,6 +33,7 @@ impl<A> TypedAssetId<A> {
 }
 
 impl<A> Borrow<AssetId> for TypedAssetId<A> {
+    #[inline]
     fn borrow(&self) -> &AssetId {
         &self.id
     }
@@ -41,6 +43,7 @@ impl<A> Debug for TypedAssetId<A>
 where
     A: Asset,
 {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if f.alternate() {
             write!(f, "{}({:#?})", A::name(), self.id)
@@ -54,6 +57,7 @@ impl<A> Display for TypedAssetId<A>
 where
     A: Asset,
 {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if f.alternate() {
             write!(f, "{}({:#})", A::name(), self.id)
@@ -67,6 +71,7 @@ impl<A> LowerHex for TypedAssetId<A>
 where
     A: Asset,
 {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if f.alternate() {
             write!(f, "{}({:#x})", A::name(), self.id)
@@ -80,6 +85,7 @@ impl<A> UpperHex for TypedAssetId<A>
 where
     A: Asset,
 {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if f.alternate() {
             write!(f, "{}({:#X})", A::name(), self.id)

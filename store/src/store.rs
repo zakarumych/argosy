@@ -6,17 +6,17 @@ use std::{
 
 use argosy_id::AssetId;
 use argosy_import::{loading::LoadingError, ImportError, Importer};
-use eyre::WrapErr;
+use futures::future::BoxFuture;
 use hashbrown::{HashMap, HashSet};
 use parking_lot::RwLock;
 use url::Url;
 
 use crate::{
-    id_gen::IdGen,
+    gen::Generator,
     importer::Importers,
-    meta::{AssetMeta, SourceMeta},
-    sources::Sources,
-    temp::Temporaries,
+    meta::{AssetMeta, MetaError, SourceMeta},
+    sources::{Sources, SourcesError},
+    temp::make_temporary,
 };
 
 pub const ARGOSY_META_NAME: &'static str = "argosy.toml";
@@ -38,6 +38,102 @@ pub struct StoreInfo {
     pub importers: Vec<PathBuf>,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum OpenStoreError {
+    #[error("Failed to find current working directory. {error}")]
+    NoCwd { error: std::io::Error },
+
+    #[error("Failed to find store metadata file in ancestors of '{path}'")]
+    NotFound { path: PathBuf },
+
+    #[error("Error: '{error}' while trying to canonicalize path '{path}'")]
+    CanonError {
+        #[source]
+        error: std::io::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to read store metadata file '{path}'. {error}")]
+    MetaReadError {
+        error: std::io::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to deserialize store metadata file '{path}'. {error}")]
+    MetaDeserializeError {
+        error: toml::de::Error,
+        path: PathBuf,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SaveStoreError {
+    #[error("Failed to write store metadata file '{path}'. {error}")]
+    MetaWriteError {
+        error: std::io::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to serialize store metadata file '{path}'. {error}")]
+    MetaSerializeError {
+        error: toml::ser::Error,
+        path: PathBuf,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StoreError {
+    #[error("Failed to construct URL from base '{base}' and source '{url}'. {error}")]
+    InvalidSourceUrl {
+        error: url::ParseError,
+        base: Url,
+        url: String,
+    },
+
+    #[error(transparent)]
+    MetaError(MetaError),
+
+    #[error("Failed to find importer '{url}':'{format:?}->{target}'")]
+    NoImporters {
+        format: Option<String>,
+        target: String,
+        url: Url,
+    },
+
+    #[error(
+        "Multiple importers may import '{url}' from different formats '{formats:?}' to target '{target}'"
+    )]
+    AmbiguousImporters {
+        formats: Vec<String>,
+        target: String,
+        url: Url,
+    },
+
+    #[error(transparent)]
+    SourcesError(SourcesError),
+
+    #[error("Failed to import asset '{url}':'{format:?}->{target}'. {reason}")]
+    ImportError {
+        format: Option<String>,
+        target: String,
+        url: Url,
+        reason: String,
+    },
+
+    #[error("Too many attempts to import asset '{url}':'{format:?}->{target}'")]
+    TooManyAttempts {
+        format: Option<String>,
+        target: String,
+        url: Url,
+    },
+
+    #[error("Failed to create directory '{path}' to store import artifacts. {error}")]
+    FailedToCreateArtifactsDirectory {
+        error: std::io::Error,
+        path: PathBuf,
+    },
+}
+
 impl Default for StoreInfo {
     fn default() -> Self {
         StoreInfo::new(None, None, None, &[])
@@ -45,18 +141,30 @@ impl Default for StoreInfo {
 }
 
 impl StoreInfo {
-    pub fn write(&self, path: &Path) -> eyre::Result<()> {
-        let meta = toml::to_string_pretty(self).wrap_err("Failed to serialize metadata")?;
-        std::fs::write(path, &meta)
-            .wrap_err_with(|| format!("Failed to write metadata file '{}'", path.display()))?;
+    pub fn write(&self, path: &Path) -> Result<(), SaveStoreError> {
+        let meta =
+            toml::to_string_pretty(self).map_err(|error| SaveStoreError::MetaSerializeError {
+                error,
+                path: path.to_owned(),
+            })?;
+        std::fs::write(path, &meta).map_err(|error| SaveStoreError::MetaWriteError {
+            error,
+            path: path.to_owned(),
+        })?;
         Ok(())
     }
 
-    pub fn read(path: &Path) -> eyre::Result<Self> {
-        let err_ctx = || format!("Failed to read metadata file '{}'", path.display());
-
-        let meta = std::fs::read(path).wrap_err_with(err_ctx)?;
-        let meta: StoreInfo = toml::from_slice(&meta).wrap_err_with(err_ctx)?;
+    pub fn read(path: &Path) -> Result<Self, OpenStoreError> {
+        let meta =
+            std::fs::read_to_string(path).map_err(|error| OpenStoreError::MetaReadError {
+                error,
+                path: path.to_owned(),
+            })?;
+        let meta: StoreInfo =
+            toml::from_str(&meta).map_err(|error| OpenStoreError::MetaDeserializeError {
+                error,
+                path: path.to_owned(),
+            })?;
         Ok(meta)
     }
 
@@ -97,46 +205,46 @@ pub struct Store {
 
     artifacts: RwLock<HashMap<AssetId, AssetItem>>,
     scanned: RwLock<bool>,
-    id_gen: IdGen,
+    id_gen: Generator,
 }
 
 impl Store {
     /// Find and open store in ancestors of specified directory.
     #[tracing::instrument]
-    pub fn find(path: &Path) -> eyre::Result<Self> {
-        let path = dunce::canonicalize(path)?;
-        let err = format!(
-            "Failed to find `{}` in ancestors of {}",
-            ARGOSY_META_NAME,
-            path.display(),
-        );
-        let meta_path = find_argosy_info(path).ok_or_else(|| eyre::eyre!(err))?;
+    pub fn find(path: &Path) -> Result<Self, OpenStoreError> {
+        let path = dunce::canonicalize(path).map_err(|error| OpenStoreError::CanonError {
+            error,
+            path: path.to_owned(),
+        })?;
+
+        let meta_path = find_argosy_info(&path).ok_or_else(|| OpenStoreError::NotFound { path })?;
 
         Store::open(&meta_path)
     }
 
     /// Find and open store in ancestors of current directory.
     #[tracing::instrument]
-    pub fn find_current() -> eyre::Result<Self> {
-        let cwd = std::env::current_dir().wrap_err("Failed to get current directory")?;
+    pub fn find_current() -> Result<Self, OpenStoreError> {
+        let cwd = std::env::current_dir().map_err(|error| OpenStoreError::NoCwd { error })?;
         Store::find(&cwd)
     }
 
     /// Open store database at specified path.
     #[tracing::instrument]
-    pub fn open(path: &Path) -> eyre::Result<Self> {
+    pub fn open(path: &Path) -> Result<Self, OpenStoreError> {
         let meta = StoreInfo::read(path)?;
         let base = path.parent().unwrap().to_owned();
 
         Self::new(&base, meta)
     }
 
-    pub fn new(base: &Path, meta: StoreInfo) -> eyre::Result<Self> {
-        let base = dunce::canonicalize(base).wrap_err_with(|| {
-            eyre::eyre!("Failed to canonicalize base path '{}'", base.display())
+    pub fn new(base: &Path, meta: StoreInfo) -> Result<Self, OpenStoreError> {
+        let base = dunce::canonicalize(base).map_err(|error| OpenStoreError::CanonError {
+            error,
+            path: base.to_owned(),
         })?;
-        let base_url = Url::from_directory_path(&base)
-            .map_err(|()| eyre::eyre!("'{}' is invalid base path", base.display()))?;
+        let base_url =
+            Url::from_directory_path(&base).expect("Canonical path must be convertible to URL");
 
         let artifacts = base.join(
             meta.artifacts
@@ -180,7 +288,7 @@ impl Store {
             importers,
             artifacts: RwLock::new(HashMap::new()),
             scanned: RwLock::new(false),
-            id_gen: IdGen::new(),
+            id_gen: Generator::new(),
         })
     }
 
@@ -193,12 +301,6 @@ impl Store {
         self.importers.load_dylib_importers(lib_path)
     }
 
-    /// Adds importer to the store.
-    #[tracing::instrument(skip_all)]
-    pub fn register_importer(&mut self, importer: impl Importer + 'static) {
-        self.importers.register_importer(importer)
-    }
-
     /// Import an asset.
     #[tracing::instrument(skip(self))]
     pub async fn store(
@@ -206,13 +308,15 @@ impl Store {
         source: &str,
         format: Option<&str>,
         target: &str,
-    ) -> eyre::Result<(AssetId, PathBuf)> {
-        let source = self.base_url.join(source).wrap_err_with(|| {
-            format!(
-                "Failed to construct URL from base '{}' and source '{}'",
-                self.base_url, source
-            )
-        })?;
+    ) -> Result<(AssetId, PathBuf, SystemTime), StoreError> {
+        let source = self
+            .base_url
+            .join(source)
+            .map_err(|error| StoreError::InvalidSourceUrl {
+                error,
+                base: self.base_url.clone(),
+                url: source.to_owned(),
+            })?;
 
         self.store_url(source, format, target).await
     }
@@ -224,12 +328,11 @@ impl Store {
         source: Url,
         format: Option<&str>,
         target: &str,
-    ) -> eyre::Result<(AssetId, PathBuf)> {
-        let mut temporaries = Temporaries::new(&self.temp);
+    ) -> Result<(AssetId, PathBuf, SystemTime), StoreError> {
         let mut sources = Sources::new();
 
         let base = &self.base;
-        let artifacts = &self.artifacts_base;
+        let artifacts_base = &self.artifacts_base;
         let external = &self.external;
         let importers = &self.importers;
 
@@ -265,13 +368,11 @@ impl Store {
         });
 
         loop {
-            // tokio::time::sleep(Duration::from_secs(1)).await;
-
             let item = stack.last_mut().unwrap();
             item.attempt += 1;
 
             let mut meta = SourceMeta::new(&item.source, &self.base, &self.external)
-                .wrap_err("Failed to fetch source meta")?;
+                .map_err(StoreError::MetaError)?;
 
             if let Some(asset) = meta.get_asset(&item.target) {
                 if asset.needs_reimport(&self.base_url) {
@@ -291,29 +392,35 @@ impl Store {
 
                     stack.pop().unwrap();
                     if stack.is_empty() {
-                        return Ok((asset.id(), asset.artifact_path(&self.artifacts_base)));
+                        let path = asset.artifact_path(&self.artifacts_base);
+                        return Ok((asset.id(), path, asset.latest_modified()));
                     }
                     continue;
                 }
             }
 
-            let importer =
-                importers.guess(item.format.as_deref(), url_ext(&item.source), &item.target)?;
+            let importer = importers
+                .guess(item.format.as_deref(), url_ext(&item.source), &item.target)
+                .map_err(|err| StoreError::AmbiguousImporters {
+                    formats: err.formats,
+                    target: err.target,
+                    url: item.source.clone(),
+                })?;
 
-            let importer = importer.ok_or_else(|| {
-                eyre::eyre!(
-                    "Failed to find importer '{} -> {}' for asset '{}'",
-                    item.format.as_deref().unwrap_or("<undefined>"),
-                    item.target,
-                    item.source,
-                )
+            let importer = importer.ok_or_else(|| StoreError::NoImporters {
+                format: item.format.clone(),
+                target: item.target.clone(),
+                url: item.source.clone(),
             })?;
 
             // Fetch source file.
-            let (source_path, modified) = sources.fetch(&mut temporaries, &item.source).await?;
-            let source_path = source_path.to_owned();
+            let (source_path, source_modified) = sources
+                .fetch(&self.temp, &item.source)
+                .await
+                .map_err(StoreError::SourcesError)?;
 
-            let output_path = temporaries.make_temporary();
+            let source_path = source_path.to_owned();
+            let output_path = make_temporary(&self.temp);
 
             struct Fn<F>(F);
 
@@ -321,8 +428,8 @@ impl Store {
             where
                 F: FnMut(&str) -> Option<PathBuf>,
             {
-                fn get(&mut self, source: &str) -> Result<Option<PathBuf>, String> {
-                    Ok((self.0)(source))
+                fn get(&mut self, source: &str) -> Option<PathBuf> {
+                    (self.0)(source)
                 }
             }
 
@@ -330,8 +437,8 @@ impl Store {
             where
                 F: FnMut(&str, &str) -> Option<AssetId>,
             {
-                fn get(&mut self, source: &str, target: &str) -> Result<Option<AssetId>, String> {
-                    Ok((self.0)(source, target))
+                fn get(&mut self, source: &str, target: &str) -> Option<AssetId> {
+                    (self.0)(source, target)
                 }
             }
 
@@ -341,9 +448,7 @@ impl Store {
                 &mut Fn(|src: &str| {
                     let src = item.source.join(src).ok()?; // If parsing fails - source will be listed in `ImportResult::RequireSources`.
                     let (path, modified) = sources.get(&src)?;
-                    if let Some(modified) = modified {
-                        item.sources.insert(src, modified);
-                    }
+                    item.sources.insert(src, modified);
                     Some(path.to_owned())
                 }),
                 &mut Fn(|src: &str, target: &str| {
@@ -366,60 +471,50 @@ impl Store {
             match result {
                 Ok(()) => {}
                 Err(ImportError::Other { reason }) => {
-                    return Err(eyre::eyre!(
-                        "Failed to import {}:{:?}->{}. {}",
-                        item.source,
-                        item.format,
-                        item.target,
+                    return Err(StoreError::ImportError {
+                        format: item.format.clone(),
+                        target: item.target.clone(),
+                        url: item.source.clone(),
                         reason,
-                    ))
+                    });
                 }
-                Err(ImportError::RequireSources { sources: srcs }) => {
+                Err(ImportError::Requires {
+                    sources: srcs,
+                    dependencies: deps,
+                }) => {
                     if item.attempt >= MAX_ITEM_ATTEMPTS {
-                        return Err(eyre::eyre!(
-                            "Failed to import {}:{:?}->{}. Too many attempts",
-                            item.source,
-                            item.format,
-                            item.target,
-                        ));
+                        return Err(StoreError::TooManyAttempts {
+                            format: item.format.clone(),
+                            target: item.target.clone(),
+                            url: item.source.clone(),
+                        });
                     }
+                    let item_source = item.source.clone();
 
-                    let source = item.source.clone();
                     for src in srcs {
-                        match source.join(&src) {
-                            Err(err) => {
-                                return Err(eyre::eyre!(
-                                    "Failed to join URL '{}' with '{}'. {:#}",
-                                    source,
-                                    src,
-                                    err,
-                                ))
+                        match item_source.join(&src) {
+                            Err(error) => {
+                                return Err(StoreError::InvalidSourceUrl {
+                                    error,
+                                    base: item_source,
+                                    url: src.clone(),
+                                });
                             }
-                            Ok(url) => sources.fetch(&mut temporaries, &url).await?,
+                            Ok(url) => sources
+                                .fetch(&self.temp, &url)
+                                .await
+                                .map_err(StoreError::SourcesError)?,
                         };
                     }
-                    continue;
-                }
-                Err(ImportError::RequireDependencies { dependencies }) => {
-                    if item.attempt >= MAX_ITEM_ATTEMPTS {
-                        return Err(eyre::eyre!(
-                            "Failed to import {}:{:?}->{}. Too many attempts",
-                            item.source,
-                            item.format,
-                            item.target,
-                        ));
-                    }
 
-                    let source = item.source.clone();
-                    for dep in dependencies.into_iter() {
-                        match source.join(&dep.source) {
-                            Err(err) => {
-                                return Err(eyre::eyre!(
-                                    "Failed to join URL '{}' with '{}'. {:#}",
-                                    source,
-                                    dep.source,
-                                    err,
-                                ))
+                    for dep in deps {
+                        match item_source.join(&dep.source) {
+                            Err(error) => {
+                                return Err(StoreError::InvalidSourceUrl {
+                                    error,
+                                    base: item_source,
+                                    url: dep.source.clone(),
+                                });
                             }
                             Ok(url) => {
                                 stack.push(StackItem {
@@ -437,15 +532,15 @@ impl Store {
                 }
             }
 
-            if !artifacts.exists() {
-                std::fs::create_dir_all(artifacts).wrap_err_with(|| {
-                    format!(
-                        "Failed to create artifacts directory '{}'",
-                        artifacts.display()
-                    )
+            if !artifacts_base.exists() {
+                std::fs::create_dir_all(artifacts_base).map_err(|error| {
+                    StoreError::FailedToCreateArtifactsDirectory {
+                        error,
+                        path: artifacts_base.to_owned(),
+                    }
                 })?;
 
-                if let Err(err) = std::fs::write(artifacts.join(".gitignore"), "*") {
+                if let Err(err) = std::fs::write(artifacts_base.join(".gitignore"), "*") {
                     tracing::error!(
                         "Failed to place .gitignore into artifacts directory. {:#}",
                         err
@@ -453,23 +548,23 @@ impl Store {
                 }
             }
 
-            let new_id = self.id_gen.new_id();
+            let new_id = AssetId(self.id_gen.generate());
 
             let item = stack.pop().unwrap();
 
             let make_relative_source = |source| match self.base_url.make_relative(source) {
-                None => item.source.to_string(),
+                None => source.to_string(),
                 Some(source) => source,
             };
 
             let mut sources = Vec::new();
-            if let Some(modified) = modified {
-                sources.push((make_relative_source(&item.source), modified));
-            }
+
+            sources.push((make_relative_source(&item.source), source_modified));
+
             sources.extend(
                 item.sources
                     .iter()
-                    .map(|(url, modified)| (make_relative_source(url), *modified)),
+                    .map(|(url, modified)| (make_relative_source(url), (*modified))),
             );
 
             let asset = AssetMeta::new(
@@ -478,13 +573,15 @@ impl Store {
                 sources,
                 item.dependencies.into_iter().collect(),
                 &output_path,
-                artifacts,
+                artifacts_base,
             )
-            .wrap_err("Failed to prepare new asset")?;
+            .map_err(StoreError::MetaError)?;
 
-            let artifact_path = asset.artifact_path(artifacts);
+            let artifact_path = asset.artifact_path(artifacts_base);
 
-            meta.add_asset(item.target.clone(), asset, base, external)?;
+            let latest_modified = asset.latest_modified();
+            meta.add_asset(item.target.clone(), asset, base, external)
+                .map_err(StoreError::MetaError)?;
 
             self.artifacts.write().insert(
                 new_id,
@@ -496,13 +593,13 @@ impl Store {
             );
 
             if stack.is_empty() {
-                return Ok((new_id, artifact_path));
+                return Ok((new_id, artifact_path, latest_modified));
             }
         }
     }
 
     /// Fetch asset data path.
-    pub async fn fetch(&self, id: AssetId) -> Option<PathBuf> {
+    pub async fn fetch(&self, id: AssetId) -> Option<(PathBuf, SystemTime)> {
         let scanned = *self.scanned.read();
 
         if !scanned {
@@ -529,12 +626,12 @@ impl Store {
 
         let item = self.artifacts.read().get(&id).cloned()?;
 
-        let (_, path) = self
+        let (_, path, modified) = self
             .store_url(item.source, item.format.as_deref(), &item.target)
             .await
             .ok()?;
 
-        Some(path)
+        Some((path, modified))
     }
 
     /// Fetch asset data path.
@@ -542,16 +639,18 @@ impl Store {
         &self,
         source: &str,
         target: &str,
-    ) -> eyre::Result<Option<(AssetId, PathBuf)>> {
-        let source_url = self.base_url.join(source).wrap_err_with(|| {
-            format!(
-                "Failed to construct URL from base '{}' and source '{}'",
-                self.base_url, source
-            )
-        })?;
+    ) -> Result<Option<AssetId>, StoreError> {
+        let source_url =
+            self.base_url
+                .join(source)
+                .map_err(|error| StoreError::InvalidSourceUrl {
+                    error,
+                    base: self.base_url.clone(),
+                    url: source.to_owned(),
+                })?;
 
         let meta = SourceMeta::new(&source_url, &self.base, &self.external)
-            .wrap_err("Failed to fetch source meta")?;
+            .map_err(StoreError::MetaError)?;
 
         match meta.get_asset(target) {
             None => {
@@ -566,29 +665,23 @@ impl Store {
                         );
                         Ok(None)
                     }
-                    Ok(id) => Ok(Some(id)),
+                    Ok((id, _, _)) => Ok(Some(id)),
                 }
             }
-            Some(asset) => Ok(Some((
-                asset.id(),
-                asset.artifact_path(&self.artifacts_base),
-            ))),
+            Some(asset) => Ok(Some(asset.id())),
         }
     }
 }
 
-pub fn find_argosy_info(mut path: PathBuf) -> Option<PathBuf> {
-    loop {
-        path.push(ARGOSY_META_NAME);
-        if path.is_file() {
-            return Some(path);
-        }
-        path.pop();
-
-        if !path.pop() {
-            return None;
+pub fn find_argosy_info(path: &Path) -> Option<PathBuf> {
+    for path in path.ancestors() {
+        let candidate = path.join(ARGOSY_META_NAME);
+        if candidate.is_file() {
+            return Some(candidate);
         }
     }
+
+    None
 }
 
 fn url_ext(url: &Url) -> Option<&str> {
@@ -745,4 +838,72 @@ fn scan_local(
             }
         }
     }
+}
+
+impl argosy::Source for Store {
+    type Error = std::io::Error;
+
+    #[inline]
+    fn find<'a>(&'a self, key: &'a str, asset: &'a str) -> BoxFuture<'a, Option<AssetId>> {
+        Box::pin(async move {
+            match self.find_asset(&key, &asset).await {
+                Err(err) => {
+                    tracing::error!("Error while searching for asset '{asset} @ {key}': {err}");
+                    None
+                }
+                Ok(None) => None,
+                Ok(Some(id)) => Some(id),
+            }
+        })
+    }
+
+    #[inline]
+    fn load<'a>(
+        &'a self,
+        id: AssetId,
+    ) -> BoxFuture<'a, std::io::Result<Option<argosy::AssetData>>> {
+        Box::pin(async move {
+            match self.fetch(id).await {
+                None => Ok(None),
+                Some((path, modified)) => {
+                    let bytes = std::fs::read(&path)?;
+                    Ok(Some(argosy::AssetData {
+                        bytes: bytes.into_boxed_slice(),
+                        version: modified_to_version(modified),
+                    }))
+                }
+            }
+        })
+    }
+
+    #[inline]
+    fn update<'a>(
+        &'a self,
+        id: AssetId,
+        version: u64,
+    ) -> BoxFuture<'a, Result<Option<argosy::AssetData>, Self::Error>> {
+        Box::pin(async move {
+            match self.fetch(id).await {
+                None => Ok(None),
+                Some((path, modified)) => {
+                    if modified_to_version(modified) <= version {
+                        return Ok(None);
+                    }
+                    let bytes = std::fs::read(&path)?;
+                    Ok(Some(argosy::AssetData {
+                        bytes: bytes.into_boxed_slice(),
+                        version: modified_to_version(modified),
+                    }))
+                }
+            }
+        })
+    }
+}
+
+#[inline]
+fn modified_to_version(modified: SystemTime) -> u64 {
+    modified
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("SystemTime must be after UNIX_EPOCH")
+        .as_secs()
 }

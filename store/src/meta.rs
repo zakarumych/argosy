@@ -1,62 +1,132 @@
 use std::{
-    error::Error,
-    fs::File,
-    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     time::SystemTime,
 };
 
 use argosy_id::AssetId;
-use eyre::WrapErr;
 use hashbrown::HashMap;
 use url::Url;
 
-use crate::{scheme::Scheme, sha256::Sha256Hash};
+use crate::{
+    content_address::{move_file_with_content_address, with_path_candidates, PREFIX_STARTING_LEN},
+    scheme::Scheme,
+    sha256::Sha256Hash,
+};
 
-const PREFIX_STARTING_LEN: usize = 8;
-const EXTENSION: &'static str = "treasure";
-const DOT_EXTENSION: &'static str = ".treasure";
+const EXTENSION: &'static str = "argosy";
+const DOT_EXTENSION: &'static str = ".argosy";
 
+/// Metadata for single asset.
+///
+/// Contains information about asset file, source, format and dependencies.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct AssetMeta {
+    /// Asset ID.
     id: AssetId,
 
     /// Imported asset file hash.
     sha256: Sha256Hash,
 
+    /// Asset format if specified.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     format: Option<String>,
 
+    /// Minimal length of the hash prefix required to avoid collisions between files with same hash prefixes.
     #[serde(skip_serializing_if = "prefix_is_default", default = "default_prefix")]
-    prefix: usize,
+    path_len: u64,
 
-    #[serde(skip_serializing_if = "suffix_is_zero", default)]
-    suffix: u64,
-
-    // Array of dependencies of this asset.
+    // Array of dependencies for this asset.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     dependencies: Vec<AssetId>,
 
-    // Key is URL, value is last modified time.
+    // Maps source URL to last modified time.
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     sources: HashMap<String, SystemTime>,
 }
 
-fn prefix_is_default(prefix: &usize) -> bool {
-    *prefix == PREFIX_STARTING_LEN
+fn prefix_is_default(prefix: &u64) -> bool {
+    default_prefix() == *prefix
 }
 
-fn default_prefix() -> usize {
-    PREFIX_STARTING_LEN
+const fn default_prefix() -> u64 {
+    PREFIX_STARTING_LEN as u64
 }
 
-fn suffix_is_zero(suffix: &u64) -> bool {
-    *suffix == 0
+#[derive(Debug, thiserror::Error)]
+pub enum MetaError {
+    #[error("Failed to calculate hash of the file '{path}': {error}")]
+    HashError {
+        error: std::io::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to save artifact file")]
+    SaveArtifactError {
+        error: std::io::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to rename file '{from}' to '{to}': {error}")]
+    RenameError {
+        error: std::io::Error,
+        from: PathBuf,
+        to: PathBuf,
+    },
+
+    #[error("Failed to compare files '{path1}' and '{path2}': {error}")]
+    CompareError {
+        error: std::io::Error,
+        path1: PathBuf,
+        path2: PathBuf,
+    },
+
+    #[error("Path '{path}' is occupied by non-file")]
+    PathOccupiedByDirectory { path: PathBuf },
+
+    #[error("Error: '{error}' while trying to canonicalize path '{path}'")]
+    CanonError {
+        #[source]
+        error: std::io::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to convert path '{path}' to URL")]
+    UrlFromPathError { path: PathBuf },
+
+    #[error("Failed to read file '{path}': {error}")]
+    ReadError {
+        error: std::io::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to read file '{path}': {error}")]
+    WriteError {
+        error: std::io::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to deserialize TOML '{path}': {error}")]
+    DeserializeError {
+        error: toml::de::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to serialize TOML '{path}': {error}")]
+    SerializeError {
+        error: toml::ser::Error,
+        path: PathBuf,
+    },
+
+    #[error("Failed to create directory '{path}': {error}")]
+    CreateDirError {
+        error: std::io::Error,
+        path: PathBuf,
+    },
 }
 
 impl AssetMeta {
     /// Creates new asset metadata.
-    /// Puts ouput to the artifacs directory.
+    /// Puts output to the artifacts directory.
     ///
     /// This function is when new asset is imported.
     ///
@@ -76,84 +146,27 @@ impl AssetMeta {
         dependencies: Vec<AssetId>,
         output: &Path,
         artifacts: &Path,
-    ) -> eyre::Result<Self> {
-        let sha256 = Sha256Hash::file_hash(output).wrap_err_with(|| {
-            format!(
-                "Failed to calculate hash of the file '{}'",
-                output.display()
-            )
+    ) -> Result<Self, MetaError> {
+        let sha256 = Sha256Hash::file_hash(output).map_err(|error| MetaError::HashError {
+            error,
+            path: output.to_owned(),
         })?;
 
         let hex = format!("{:x}", sha256);
 
-        let (prefix, suffix) = with_path_candidates(
-            &hex,
-            artifacts,
-            move |prefix, suffix, path| -> eyre::Result<_> {
-                match path.metadata() {
-                    Err(_) => {
-                        // Artifact file does not exists.
-                        // This is the most common case.
-                        std::fs::rename(output, &path).wrap_err_with(|| {
-                            format!(
-                                "Failed to rename output file '{}' to artifact file '{}'",
-                                output.display(),
-                                path.display()
-                            )
-                        })?;
-
-                        Ok(Some((prefix, suffix)))
-                    }
-                    Ok(meta) if meta.is_file() => {
-                        // Artifacto file already exists.
-                        // Check if it is the same file or just a prefix collision.
-                        let eq = files_eq(output, &path).wrap_err_with(|| {
-                            format!(
-                                "Failed to compare artifact file '{}' and new asset output '{}'",
-                                path.display(),
-                                output.display(),
-                            )
-                        })?;
-
-                        if eq {
-                            tracing::warn!("Artifact for asset '{}' is already in storage", id);
-
-                            if let Err(err) = std::fs::remove_file(output) {
-                                tracing::error!(
-                                    "Failed to remove duplicate artifact file '{}'. {:#}",
-                                    err,
-                                    output.display()
-                                );
-                            }
-
-                            Ok(Some((prefix, suffix)))
-                        } else {
-                            // Prefixes are the same.
-                            // Try longer prefix.
-                            tracing::debug!("Artifact path collision");
-                            Ok(None)
-                        }
-                    }
-                    Ok(_) => {
-                        // Path is occupied by directory.
-                        // This should never be caused by the store itself.
-                        // But it can be caused by user and is not treated as an error.
-                        tracing::warn!(
-                            "Artifacts storage occupied by non-file entity '{}'",
-                            path.display()
-                        );
-                        Ok(None)
-                    }
+        let (_, path_len) =
+            move_file_with_content_address(&hex, output, artifacts).map_err(|error| {
+                MetaError::SaveArtifactError {
+                    path: output.to_owned(),
+                    error,
                 }
-            },
-        )?;
+            })?;
 
         Ok(AssetMeta {
             id,
             format,
             sha256,
-            prefix,
-            suffix,
+            path_len,
             sources: sources.into_iter().collect(),
             dependencies,
         })
@@ -224,41 +237,28 @@ impl AssetMeta {
     /// Returns path to the artifact.
     pub fn artifact_path(&self, artifacts: &Path) -> PathBuf {
         let hex = format!("{:x}", self.sha256);
-        let prefix = &hex[..self.prefix];
 
-        match self.suffix {
-            0 => artifacts.join(prefix),
-            suffix => artifacts.join(format!("{}:{}", prefix, suffix)),
+        if self.path_len <= hex.len() as u64 {
+            let prefix = &hex[..self.path_len as usize];
+            artifacts.join(prefix)
+        } else {
+            artifacts.join(format!("{}:{}", hex, self.path_len - hex.len() as u64))
         }
+    }
+
+    pub fn latest_modified(&self) -> SystemTime {
+        self.sources
+            .values()
+            .copied()
+            .max()
+            .unwrap_or(SystemTime::UNIX_EPOCH)
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("Error: '{}' while trying to canonicalize path '{}'", error, path.display())]
-struct CanonError {
-    #[source]
-    error: std::io::Error,
-    path: PathBuf,
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("Failed to convert path '{}' to URL", path.display())]
-struct UrlFromPathError {
-    path: PathBuf,
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("Error: '{}' with file: '{}'", error, path.display())]
-struct FileError<E: Error> {
-    #[source]
-    error: E,
-    path: PathBuf,
-}
-
-/// Data attached to single asset source.
-/// It may include several assets.
-/// If attached to external source outside store directory
-/// then it is stored together with artifacts by URL hash.
+/// Metadata associated with asset source file.
+/// This metadata is stored in sibling file with `.argosy` extension.
+/// Or in 'external' directory if source is not in the base directory or
+/// one of its subdirectories. Or if source is not a file.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SourceMeta {
     url: Url,
@@ -268,7 +268,7 @@ pub struct SourceMeta {
 impl SourceMeta {
     /// Finds and returns meta for the source URL.
     /// Creates new file if needed.
-    pub fn new(source: &Url, base: &Path, external: &Path) -> eyre::Result<SourceMeta> {
+    pub fn new(source: &Url, base: &Path, external: &Path) -> Result<SourceMeta, MetaError> {
         let (meta_path, is_external) = get_meta_path(source, base, external)?;
 
         if is_external {
@@ -286,61 +286,57 @@ impl SourceMeta {
         meta_path.extension().map_or(false, |e| e == EXTENSION)
     }
 
-    pub fn new_local(meta_path: &Path) -> eyre::Result<SourceMeta> {
+    pub fn new_local(meta_path: &Path) -> Result<SourceMeta, MetaError> {
         SourceMeta::read_local(meta_path, true)
     }
 
-    pub fn open_local(meta_path: &Path) -> eyre::Result<SourceMeta> {
+    pub fn open_local(meta_path: &Path) -> Result<SourceMeta, MetaError> {
         SourceMeta::read_local(meta_path, false)
     }
 
-    fn read_local(meta_path: &Path, allow_missing: bool) -> eyre::Result<Self> {
+    fn read_local(meta_path: &Path, allow_missing: bool) -> Result<Self, MetaError> {
         let source_path = meta_path.with_extension("");
         let url = Url::from_file_path(&source_path)
-            .map_err(|()| UrlFromPathError { path: source_path })?;
+            .map_err(|()| MetaError::UrlFromPathError { path: source_path })?;
 
-        match std::fs::read(meta_path) {
+        match std::fs::read_to_string(meta_path) {
             Err(err) if allow_missing && err.kind() == std::io::ErrorKind::NotFound => {
                 Ok(SourceMeta {
                     url,
                     assets: HashMap::new(),
                 })
             }
-            Err(err) => Err(FileError {
-                error: err,
+            Err(error) => Err(MetaError::ReadError {
+                error,
                 path: meta_path.to_owned(),
-            })
-            .wrap_err("Meta read failed"),
+            }),
             Ok(data) => {
-                let assets = toml::from_slice(&data)
-                    .map_err(|err| FileError {
-                        error: err,
+                let assets =
+                    toml::from_str(&data).map_err(|error| MetaError::DeserializeError {
+                        error,
                         path: meta_path.to_owned(),
-                    })
-                    .wrap_err("Meta read failed")?;
+                    })?;
                 Ok(SourceMeta { url, assets })
             }
         }
     }
 
-    pub fn new_external(meta_path: &Path, source: &Url) -> eyre::Result<SourceMeta> {
-        match std::fs::read(meta_path) {
+    pub fn new_external(meta_path: &Path, source: &Url) -> Result<SourceMeta, MetaError> {
+        match std::fs::read_to_string(meta_path) {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(SourceMeta {
                 url: source.clone(),
                 assets: HashMap::new(),
             }),
-            Err(err) => Err(FileError {
-                error: err,
+            Err(error) => Err(MetaError::ReadError {
+                error,
                 path: meta_path.to_owned(),
-            })
-            .wrap_err("Meta read failed"),
+            }),
             Ok(data) => {
-                let assets = toml::from_slice(&data)
-                    .map_err(|err| FileError {
-                        error: err,
+                let assets =
+                    toml::from_str(&data).map_err(|error| MetaError::DeserializeError {
+                        error,
                         path: meta_path.to_owned(),
-                    })
-                    .wrap_err("Meta read failed")?;
+                    })?;
                 Ok(SourceMeta {
                     url: source.clone(),
                     assets,
@@ -349,20 +345,17 @@ impl SourceMeta {
         }
     }
 
-    pub fn open_external(meta_path: &Path) -> eyre::Result<SourceMeta> {
-        match std::fs::read(meta_path) {
-            Err(err) => Err(FileError {
-                error: err,
+    pub fn open_external(meta_path: &Path) -> Result<SourceMeta, MetaError> {
+        match std::fs::read_to_string(meta_path) {
+            Err(error) => Err(MetaError::ReadError {
+                error,
                 path: meta_path.to_owned(),
-            })
-            .wrap_err("Meta read failed"),
+            }),
             Ok(data) => {
-                let meta = toml::from_slice(&data)
-                    .map_err(|err| FileError {
-                        error: err,
-                        path: meta_path.to_owned(),
-                    })
-                    .wrap_err("Meta read failed")?;
+                let meta = toml::from_str(&data).map_err(|error| MetaError::DeserializeError {
+                    error,
+                    path: meta_path.to_owned(),
+                })?;
                 Ok(meta)
             }
         }
@@ -382,7 +375,7 @@ impl SourceMeta {
         asset: AssetMeta,
         base: &Path,
         external: &Path,
-    ) -> eyre::Result<()> {
+    ) -> Result<(), MetaError> {
         self.assets.insert(target, asset);
 
         let (meta_path, is_external) = get_meta_path(&self.url, base, external)?;
@@ -394,80 +387,43 @@ impl SourceMeta {
         Ok(())
     }
 
-    fn write_to(&self, path: &Path) -> eyre::Result<()> {
-        let data = toml::to_string_pretty(&self.assets)
-            .map_err(|err| FileError {
-                error: err,
+    fn write_to(&self, path: &Path) -> Result<(), MetaError> {
+        let data =
+            toml::to_string_pretty(&self.assets).map_err(|error| MetaError::SerializeError {
+                error,
                 path: path.to_owned(),
-            })
-            .wrap_err("Meta write failed")?;
-        std::fs::write(path, data.as_bytes())
-            .map_err(|err| FileError {
-                error: err,
-                path: path.to_owned(),
-            })
-            .wrap_err("Meta write failed")?;
+            })?;
+        std::fs::write(path, data.as_bytes()).map_err(|error| MetaError::WriteError {
+            error,
+            path: path.to_owned(),
+        })?;
         Ok(())
     }
 
-    fn write_with_url_to(&self, path: &Path) -> eyre::Result<()> {
-        let data = toml::to_string_pretty(self)
-            .map_err(|err| FileError {
-                error: err,
-                path: path.to_owned(),
-            })
-            .wrap_err("Meta write failed")?;
-        std::fs::write(path, data.as_bytes())
-            .map_err(|err| FileError {
-                error: err,
-                path: path.to_owned(),
-            })
-            .wrap_err("Meta write failed")?;
+    fn write_with_url_to(&self, path: &Path) -> Result<(), MetaError> {
+        let data = toml::to_string_pretty(self).map_err(|error| MetaError::SerializeError {
+            error,
+            path: path.to_owned(),
+        })?;
+        std::fs::write(path, data.as_bytes()).map_err(|error| MetaError::WriteError {
+            error,
+            path: path.to_owned(),
+        })?;
         Ok(())
-    }
-}
-
-fn files_eq(lhs: &Path, rhs: &Path) -> std::io::Result<bool> {
-    let mut lhs = File::open(lhs)?;
-    let mut rhs = File::open(rhs)?;
-
-    let lhs_size = lhs.seek(SeekFrom::End(0))?;
-    let rhs_size = rhs.seek(SeekFrom::End(0))?;
-
-    if lhs_size != rhs_size {
-        return Ok(false);
-    }
-
-    lhs.seek(SeekFrom::Start(0))?;
-    rhs.seek(SeekFrom::Start(0))?;
-
-    let mut buffer_lhs = [0; 16536];
-    let mut buffer_rhs = [0; 16536];
-
-    loop {
-        let read = lhs.read(&mut buffer_lhs)?;
-        if read == 0 {
-            return Ok(true);
-        }
-        rhs.read_exact(&mut buffer_rhs[..read])?;
-
-        if buffer_lhs[..read] != buffer_rhs[..read] {
-            return Ok(false);
-        }
     }
 }
 
 /// Finds and returns meta for the source URL.
 /// Creates new file if needed.
-fn get_meta_path(source: &Url, base: &Path, external: &Path) -> eyre::Result<(PathBuf, bool)> {
+fn get_meta_path(source: &Url, base: &Path, external: &Path) -> Result<(PathBuf, bool), MetaError> {
     if source.scheme() == "file" {
         match source.to_file_path() {
             Ok(path) => {
-                let path =
-                    dunce::canonicalize(&path).map_err(|err| CanonError { error: err, path })?;
+                let path = dunce::canonicalize(&path)
+                    .map_err(|err| MetaError::CanonError { error: err, path })?;
 
                 if path.starts_with(base) {
-                    // Files inside `base` directory has meta attached to them as sibling file with `.treasure` extension added.
+                    // Files inside `base` directory has meta attached to them as sibling file with `.argosy` extension added.
 
                     let mut filename = path.file_name().unwrap_or("".as_ref()).to_owned();
                     filename.push(DOT_EXTENSION);
@@ -480,17 +436,15 @@ fn get_meta_path(source: &Url, base: &Path, external: &Path) -> eyre::Result<(Pa
         }
     }
 
-    std::fs::create_dir_all(external).wrap_err_with(|| {
-        format!(
-            "Failed to create external directory '{}'",
-            external.display()
-        )
+    std::fs::create_dir_all(external).map_err(|error| MetaError::CreateDirError {
+        error,
+        path: external.to_owned(),
     })?;
 
-    let hash = Sha256Hash::new(source.as_str());
+    let hash = Sha256Hash::hash(source.as_str());
     let hex = format!("{:x}", hash);
 
-    with_path_candidates(&hex, external, |_prefix, _suffix, path| {
+    let (path, _) = with_path_candidates(&hex, external, |path, _| {
         match path.metadata() {
             Err(_) => {
                 // Not exists. Let's try to occupy.
@@ -515,41 +469,7 @@ fn get_meta_path(source: &Url, base: &Path, external: &Path) -> eyre::Result<(Pa
                 Ok(None)
             }
         }
-    })
-}
+    })?;
 
-fn with_path_candidates<T, E>(
-    hex: &str,
-    base: &Path,
-    mut f: impl FnMut(usize, u64, PathBuf) -> Result<Option<T>, E>,
-) -> Result<T, E> {
-    use std::fmt::Write;
-
-    for len in PREFIX_STARTING_LEN..=hex.len() {
-        let path = base.join(&hex[..len]);
-
-        match f(len, 0, path) {
-            Ok(None) => {}
-            Ok(Some(ok)) => return Ok(ok),
-            Err(err) => return Err(err),
-        }
-    }
-
-    // Rarely needed.
-    let mut name = hex.to_owned();
-
-    for suffix in 0u64.. {
-        name.truncate(hex.len());
-        write!(name, ":{}", suffix).unwrap();
-
-        let path = base.join(&name);
-
-        match f(hex.len(), suffix, path) {
-            Ok(None) => {}
-            Ok(Some(ok)) => return Ok(ok),
-            Err(err) => return Err(err),
-        }
-    }
-
-    unreachable!()
+    Ok((path, true))
 }

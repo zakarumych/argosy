@@ -1,11 +1,13 @@
 use std::{
-    borrow::Cow,
     fmt::{self, Debug, Display, LowerHex, UpperHex},
     num::{NonZeroU64, ParseIntError},
     str::FromStr,
 };
 
-use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{
+    de::{Error, Unexpected},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 
 /// 64-bit id value.
 /// FFI-safe.
@@ -14,7 +16,7 @@ use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 pub struct AssetId(pub NonZeroU64);
 
 impl Serialize for AssetId {
-    #[inline(always)]
+    #[inline(never)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -32,19 +34,55 @@ impl Serialize for AssetId {
     }
 }
 
+struct AssetIdVisitor;
+
+impl<'de> serde::de::Visitor<'de> for AssetIdVisitor {
+    type Value = AssetId;
+
+    #[inline(never)]
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "a non-zero 64-bit integer or a hex string")
+    }
+
+    #[inline(never)]
+    fn visit_u64<E>(self, v: u64) -> Result<AssetId, E>
+    where
+        E: Error,
+    {
+        match NonZeroU64::new(v) {
+            None => Err(E::invalid_value(Unexpected::Unsigned(0), &self)),
+            Some(value) => Ok(AssetId(value)),
+        }
+    }
+
+    #[inline(never)]
+    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        if v <= 0 {
+            Err(E::invalid_value(Unexpected::Signed(v), &self))
+        } else {
+            Ok(AssetId(NonZeroU64::new(v as u64).unwrap()))
+        }
+    }
+
+    #[inline(never)]
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        v.parse().map_err(E::custom)
+    }
+}
+
 impl<'de> Deserialize<'de> for AssetId {
-    #[inline(always)]
+    #[inline(never)]
     fn deserialize<D>(deserializer: D) -> Result<AssetId, D::Error>
     where
         D: Deserializer<'de>,
     {
-        if deserializer.is_human_readable() {
-            let hex = Cow::<str>::deserialize(deserializer)?;
-            hex.parse().map_err(Error::custom)
-        } else {
-            let value = NonZeroU64::deserialize(deserializer)?;
-            Ok(AssetId(value))
-        }
+        deserializer.deserialize_u64(AssetIdVisitor)
     }
 }
 
@@ -60,7 +98,7 @@ pub enum ParseAssetIdError {
 impl FromStr for AssetId {
     type Err = ParseAssetIdError;
 
-    #[inline(always)]
+    #[inline(never)]
     fn from_str(s: &str) -> Result<Self, ParseAssetIdError> {
         let value = u64::from_str_radix(s, 16)?;
         match NonZeroU64::new(value) {
@@ -74,7 +112,7 @@ impl FromStr for AssetId {
 pub struct ZeroIDError;
 
 impl AssetId {
-    #[inline(always)]
+    #[inline(never)]
     pub const fn new(value: u64) -> Option<Self> {
         match NonZeroU64::new(value) {
             None => None,
@@ -82,14 +120,14 @@ impl AssetId {
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn value(&self) -> NonZeroU64 {
         self.0
     }
 }
 
 impl From<NonZeroU64> for AssetId {
-    #[inline(always)]
+    #[inline(never)]
     fn from(value: NonZeroU64) -> Self {
         AssetId(value)
     }
@@ -107,28 +145,28 @@ impl TryFrom<u64> for AssetId {
 }
 
 impl Debug for AssetId {
-    #[inline(always)]
+    #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         LowerHex::fmt(&self.0.get(), f)
     }
 }
 
 impl UpperHex for AssetId {
-    #[inline(always)]
+    #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         UpperHex::fmt(&self.0.get(), f)
     }
 }
 
 impl LowerHex for AssetId {
-    #[inline(always)]
+    #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         LowerHex::fmt(&self.0.get(), f)
     }
 }
 
 impl Display for AssetId {
-    #[inline(always)]
+    #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         LowerHex::fmt(&self.0.get(), f)
     }

@@ -1,17 +1,20 @@
 use std::path::Path;
 
-use argosy_import::{loading::LoadingError, Importer, ImporterFFI};
+use argosy_import::{
+    loading::{DylibImporter, LoadingError},
+    Importer,
+};
 use hashbrown::{hash_map::RawEntryMut, HashMap};
 
 #[derive(Debug, thiserror::Error)]
 #[error("Multiple importers may import from different formats '{formats:?}' to target '{target}'")]
 pub struct CannotDecideOnImporter {
-    formats: Vec<String>,
-    target: String,
+    pub formats: Vec<String>,
+    pub target: String,
 }
 
 struct ToTarget {
-    importers: Vec<ImporterFFI>,
+    importers: Vec<DylibImporter>,
     formats: HashMap<String, usize>,
     extensions: HashMap<String, usize>,
 }
@@ -27,11 +30,10 @@ impl Importers {
         }
     }
 
-    pub fn register_importer(&mut self, importer: impl argosy_import::Importer + 'static) {
-        self.add_importer(importer);
-    }
-
     /// Loads importers from dylib.
+    ///
+    /// # Safety
+    ///
     /// There is no possible way to guarantee that dylib does not break safety contracts.
     /// Some measures to ensure safety are taken.
     /// Providing dylib from which importers will be successfully imported and then cause an UB should possible only on purpose.
@@ -89,9 +91,7 @@ impl Importers {
         }
     }
 
-    fn add_importer(&mut self, importer: impl Importer + 'static) {
-        let importer = Box::new(importer);
-
+    fn add_importer(&mut self, importer: DylibImporter) {
         let name = importer.name();
         let target = importer.target();
         let formats = importer.formats();
