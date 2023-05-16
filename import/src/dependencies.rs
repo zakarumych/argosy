@@ -38,3 +38,12 @@ pub trait Dependencies {
         }
     }
 }
+
+impl<D: ?Sized> Dependencies for &mut D
+where
+    D: Dependencies,
+{
+    fn get(&mut self, source: &str, target: &str) -> Option<AssetId> {
+        (*self).get(source, target)
+    }
+}

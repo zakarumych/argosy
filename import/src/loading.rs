@@ -214,6 +214,16 @@ impl Importer for DylibImporter {
             }),
         }
     }
+
+    fn import_dyn(
+        &self,
+        source: &Path,
+        output: &Path,
+        mut sources: &mut dyn Sources,
+        mut dependencies: &mut dyn Dependencies,
+    ) -> Result<(), ImportError> {
+        Importer::import(self, source, output, &mut sources, &mut dependencies)
+    }
 }
 
 #[derive(Debug)]

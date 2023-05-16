@@ -25,3 +25,12 @@ pub trait Sources {
         }
     }
 }
+
+impl<S: ?Sized> Sources for &mut S
+where
+    S: Sources,
+{
+    fn get(&mut self, source: &str) -> Option<PathBuf> {
+        (*self).get(source)
+    }
+}

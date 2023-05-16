@@ -1,9 +1,6 @@
 use std::path::Path;
 
-use argosy_import::{
-    loading::{DylibImporter, LoadingError},
-    Importer,
-};
+use argosy_import::{loading::LoadingError, Importer};
 use hashbrown::{hash_map::RawEntryMut, HashMap};
 
 #[derive(Debug, thiserror::Error)]
@@ -14,7 +11,7 @@ pub struct CannotDecideOnImporter {
 }
 
 struct ToTarget {
-    importers: Vec<DylibImporter>,
+    importers: Vec<Box<dyn Importer>>,
     formats: HashMap<String, usize>,
     extensions: HashMap<String, usize>,
 }
@@ -41,7 +38,7 @@ impl Importers {
         let iter = argosy_import::loading::load_importers(lib_path)?;
 
         for importer in iter {
-            self.add_importer(importer);
+            self.add_importer(Box::new(importer));
         }
 
         Ok(())
@@ -53,7 +50,7 @@ impl Importers {
         format: Option<&str>,
         extension: Option<&str>,
         target: &str,
-    ) -> Result<Option<&impl Importer>, CannotDecideOnImporter> {
+    ) -> Result<Option<&dyn Importer>, CannotDecideOnImporter> {
         tracing::debug!("Guessing importer to '{}'", target);
 
         let to_target = self.targets.get(target);
@@ -69,7 +66,7 @@ impl Importers {
                         0 => {
                             unreachable!()
                         }
-                        1 => Ok(Some(&to_target.importers[0])),
+                        1 => Ok(Some(&*to_target.importers[0])),
                         _ => {
                             tracing::debug!("Multiple importers to '{}' found", target);
                             Err(CannotDecideOnImporter {
@@ -80,18 +77,19 @@ impl Importers {
                     },
                     Some(extension) => match to_target.extensions.get(extension) {
                         None => Ok(None),
-                        Some(&idx) => Ok(Some(&to_target.importers[idx])),
+                        Some(&idx) => Ok(Some(&*to_target.importers[idx])),
                     },
                 },
                 Some(format) => match to_target.formats.get(format) {
                     None => Ok(None),
-                    Some(&idx) => Ok(Some(&to_target.importers[idx])),
+                    Some(&idx) => Ok(Some(&*to_target.importers[idx])),
                 },
             },
         }
     }
 
-    fn add_importer(&mut self, importer: DylibImporter) {
+    /// Adds importer to the list of importers.
+    pub fn add_importer(&mut self, importer: Box<dyn Importer>) {
         let name = importer.name();
         let target = importer.target();
         let formats = importer.formats();

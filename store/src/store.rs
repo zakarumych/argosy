@@ -292,6 +292,12 @@ impl Store {
         })
     }
 
+    /// Register importer.
+    #[tracing::instrument(skip(self), fields(importer = %importer.name()))]
+    pub fn register_importer(&mut self, importer: Box<dyn Importer>) {
+        self.importers.add_importer(importer);
+    }
+
     /// Loads importers from dylib.
     /// There is no possible way to guarantee that dylib does not break safety contracts.
     /// Some measures to ensure safety are taken.
@@ -442,7 +448,7 @@ impl Store {
                 }
             }
 
-            let result = importer.import(
+            let result = importer.import_dyn(
                 &source_path,
                 &output_path,
                 &mut Fn(|src: &str| {
