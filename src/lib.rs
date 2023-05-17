@@ -69,7 +69,10 @@ pub use self::{
     asset::{Asset, AssetBuild, LeafAsset, TrivialAsset},
     error::{Error, NotFound},
     field::{AssetField, AssetFieldBuild},
-    handle::{AssetDriver, AssetFuture, AssetHandle, AssetLookup, LoadedAsset, LoadedAssetDriver},
+    handle::{
+        AssetDriver, AssetFuture, AssetHandle, AssetLookup, DriveAsset, LoadedAsset,
+        LoadedAssetDriver, SimpleDrive,
+    },
     key::Key,
     loader::{Loader, LoaderBuilder},
     source::{AssetData, Source},

@@ -755,6 +755,19 @@ where
     }
 }
 
+pub trait DriveAsset {
+    type Builder<'a>;
+}
+
+pub enum SimpleDrive<B> {
+    #[doc(hidden)]
+    _Unused(B),
+}
+
+impl<B> DriveAsset for SimpleDrive<B> {
+    type Builder<'a> = B;
+}
+
 impl<A> AssetHandle<A>
 where
     A: Asset,
@@ -762,13 +775,14 @@ where
     /// Returns a future to wait for asset to be loaded
     /// erasing asset type but providing specific builder type.
     #[inline]
-    pub fn driver<B>(self) -> AssetDriver<B>
+    pub fn driver<D>(self) -> AssetDriver<D>
     where
-        A: AssetBuild<B>,
+        D: DriveAsset,
+        A: for<'a> AssetBuild<D::Builder<'a>>,
     {
         AssetDriver {
             handle: self.handle,
-            build_fn: build_fn::<A, B>,
+            build_fn: build_fn::<A, D>,
         }
     }
 }
@@ -776,28 +790,38 @@ where
 /// Future to wait for asset to be loaded.
 /// Unlike `AssetHandle` it is
 /// parametrized with builder type instead of asset type.
-pub struct AssetDriver<B> {
+pub struct AssetDriver<D: DriveAsset> {
     handle: Handle,
     build_fn: fn(
         decoded: &mut (dyn Any + Send + Sync),
-        builder: &mut B,
+        builder: &mut D::Builder<'_>,
     ) -> Option<Result<Arc<dyn Any + Send + Sync>, Error>>,
 }
 
-impl<B> AssetDriver<B> {
+impl<D> AssetDriver<D>
+where
+    D: DriveAsset,
+{
     /// Polls for asset to be loaded.
     /// Returns `true` if asset is loaded.
     /// Returns `false` if asset is not yet loaded.
     #[inline]
-    pub fn poll_loaded(&mut self) -> bool {
-        self.handle.poll(PollFor::Load, None)
+    pub fn poll_loaded(&mut self) -> Option<LoadedAssetDriver<D>> {
+        if !self.handle.poll(PollFor::Load, None) {
+            return None;
+        }
+
+        Some(LoadedAssetDriver {
+            handle: self.handle.clone(),
+            build_fn: self.build_fn,
+        })
     }
 
     /// Polls for asset and builds it if loaded.
     /// Returns `true` if asset is loaded and built.
     /// Returns `false` if asset is not yet loaded.
     #[inline]
-    pub fn poll_build(&mut self, builder: &mut B) -> bool {
+    pub fn poll_build(&mut self, builder: &mut D::Builder<'_>) -> bool {
         if !self.handle.poll(PollFor::Load, None) {
             return false;
         }
@@ -812,11 +836,14 @@ impl<B> AssetDriver<B> {
     }
 }
 
-impl<B> Future for AssetDriver<B> {
-    type Output = LoadedAssetDriver<B>;
+impl<D> Future for AssetDriver<D>
+where
+    D: DriveAsset,
+{
+    type Output = LoadedAssetDriver<D>;
 
     #[inline]
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<LoadedAssetDriver<B>> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<LoadedAssetDriver<D>> {
         let me = self.get_mut();
         if !me.handle.poll(PollFor::Load, Some(cx.waker())) {
             return Poll::Pending;
@@ -833,17 +860,20 @@ impl<B> Future for AssetDriver<B> {
 /// The asset is loaded and can be built.
 /// Unlike `LoadedAsset` it is
 /// parametrized with builder type instead of asset type.
-pub struct LoadedAssetDriver<B> {
+pub struct LoadedAssetDriver<D: DriveAsset> {
     handle: Handle,
     build_fn: fn(
         decoded: &mut (dyn Any + Send + Sync),
-        builder: &mut B,
+        builder: &mut D::Builder<'_>,
     ) -> Option<Result<Arc<dyn Any + Send + Sync>, Error>>,
 }
 
-impl<B> LoadedAssetDriver<B> {
+impl<D> LoadedAssetDriver<D>
+where
+    D: DriveAsset,
+{
     #[inline]
-    pub fn build(mut self, builder: &mut B) {
+    pub fn build(mut self, builder: &mut D::Builder<'_>) {
         self.handle.build(
             |decoded| (self.build_fn)(decoded, builder),
             |_| {},
@@ -853,12 +883,13 @@ impl<B> LoadedAssetDriver<B> {
     }
 }
 
-fn build_fn<A, B>(
+fn build_fn<A, D>(
     decoded: &mut (dyn Any + Send + Sync),
-    builder: &mut B,
+    builder: &mut D::Builder<'_>,
 ) -> Option<Result<Arc<dyn Any + Send + Sync>, Error>>
 where
-    A: AssetBuild<B>,
+    D: DriveAsset,
+    A: for<'a> AssetBuild<D::Builder<'a>>,
 {
     let decoded = decoded.downcast_mut::<DecodedState<A>>().unwrap().take()?;
 
