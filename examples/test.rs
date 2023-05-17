@@ -71,7 +71,7 @@ fn main() {
     runtime.block_on(async move {
         let with_foo = loader.load::<WithFoo, _>("WithFoo");
 
-        let with_foo_driver: AssetDriver<()> = with_foo.clone().driver();
+        let with_foo_driver: AssetDriver = with_foo.clone().driver();
 
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;

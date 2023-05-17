@@ -1,4 +1,4 @@
-use std::{mem::size_of, path::PathBuf};
+use std::{marker::PhantomData, mem::size_of, path::PathBuf};
 
 #[cfg(any(unix, target_os = "wasi"))]
 use std::ffi::{OsStr, OsString};
@@ -82,21 +82,23 @@ unsafe extern "C" fn dependencies_get_ffi<D: Dependencies>(
     }
 }
 
-pub struct DependenciesFFI {
+pub struct DependenciesFFI<'a> {
     pub opaque: *mut DependenciesOpaque,
     pub get: DependenciesGetFn,
+    marker: PhantomData<&'a ()>,
 }
 
-impl DependenciesFFI {
-    pub fn new<D: Dependencies>(dependencies: &mut D) -> Self {
+impl<'a> DependenciesFFI<'a> {
+    pub fn new<D: Dependencies>(dependencies: &'a mut D) -> Self {
         DependenciesFFI {
             opaque: (dependencies as *mut D) as *mut DependenciesOpaque,
             get: dependencies_get_ffi::<D>,
+            marker: PhantomData,
         }
     }
 }
 
-impl Dependencies for DependenciesFFI {
+impl Dependencies for DependenciesFFI<'_> {
     fn get(&mut self, source: &str, target: &str) -> Option<AssetId> {
         let mut id = 0u64;
         let result = unsafe {
@@ -175,21 +177,23 @@ unsafe extern "C" fn sources_get_ffi<'a, S: Sources>(
     }
 }
 
-pub struct SourcesFFI {
+pub struct SourcesFFI<'a> {
     pub opaque: *mut SourcesOpaque,
     pub get: SourcesGetFn,
+    marker: PhantomData<&'a ()>,
 }
 
-impl SourcesFFI {
-    pub fn new<'a, S: Sources>(sources: &mut S) -> Self {
+impl<'a> SourcesFFI<'a> {
+    pub fn new<S: Sources>(sources: &'a mut S) -> Self {
         SourcesFFI {
             opaque: sources as *const S as _,
             get: sources_get_ffi::<S>,
+            marker: PhantomData,
         }
     }
 }
 
-impl Sources for SourcesFFI {
+impl Sources for SourcesFFI<'_> {
     fn get(&mut self, source: &str) -> Option<PathBuf> {
         let mut path_buf = vec![0; PATH_BUF_LEN_START];
         let mut path_len = PATH_BUF_LEN_START as u32;
@@ -281,11 +285,13 @@ unsafe extern "C" fn importer_import_ffi<I: Importer>(
     let mut sources = SourcesFFI {
         opaque: sources,
         get: sources_get,
+        marker: PhantomData,
     };
 
     let mut dependencies = DependenciesFFI {
         opaque: dependencies,
         get: dependencies_get,
+        marker: PhantomData,
     };
 
     let importer = &*(importer as *const I);

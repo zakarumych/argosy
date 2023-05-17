@@ -27,8 +27,8 @@
 //!         &self,
 //!         source: &std::path::Path,
 //!         output: &std::path::Path,
-//!         _sources: &mut impl argosy_import::Sources,
-//!         _dependencies: &mut impl argosy_import::Dependencies,
+//!         _sources: &mut dyn argosy_import::Sources,
+//!         _dependencies: &mut dyn argosy_import::Dependencies,
 //!     ) -> Result<(), argosy_import::ImportError> {
 //!         match std::fs::copy(source, output) {
 //!           Ok(_) => Ok(()),

@@ -42,23 +42,6 @@ pub trait Importer: Send + Sync {
         &self,
         source: &Path,
         output: &Path,
-        sources: &mut impl Sources,
-        dependencies: &mut impl Dependencies,
-    ) -> Result<(), ImportError>
-    where
-        Self: Sized,
-    {
-        self.import_dyn(source, output, sources, dependencies)
-    }
-
-    /// Reads data from `source` path and writes result at `output` path.
-    /// Implementation may request additional sources and dependencies.
-    /// If some are missing it **should** return `Err(ImportError::Requires { .. })`
-    /// with as much information as possible.
-    fn import_dyn(
-        &self,
-        source: &Path,
-        output: &Path,
         sources: &mut dyn Sources,
         dependencies: &mut dyn Dependencies,
     ) -> Result<(), ImportError>;

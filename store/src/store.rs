@@ -448,7 +448,7 @@ impl Store {
                 }
             }
 
-            let result = importer.import_dyn(
+            let result = importer.import(
                 &source_path,
                 &output_path,
                 &mut Fn(|src: &str| {

@@ -768,6 +768,12 @@ impl<B> DriveAsset for SimpleDrive<B> {
     type Builder<'a> = B;
 }
 
+pub enum NoBuilderDrive {}
+
+impl DriveAsset for NoBuilderDrive {
+    type Builder<'a> = ();
+}
+
 impl<A> AssetHandle<A>
 where
     A: Asset,
@@ -790,7 +796,7 @@ where
 /// Future to wait for asset to be loaded.
 /// Unlike `AssetHandle` it is
 /// parametrized with builder type instead of asset type.
-pub struct AssetDriver<D: DriveAsset> {
+pub struct AssetDriver<D: DriveAsset = NoBuilderDrive> {
     handle: Handle,
     build_fn: fn(
         decoded: &mut (dyn Any + Send + Sync),
@@ -860,7 +866,7 @@ where
 /// The asset is loaded and can be built.
 /// Unlike `LoadedAsset` it is
 /// parametrized with builder type instead of asset type.
-pub struct LoadedAssetDriver<D: DriveAsset> {
+pub struct LoadedAssetDriver<D: DriveAsset = NoBuilderDrive> {
     handle: Handle,
     build_fn: fn(
         decoded: &mut (dyn Any + Send + Sync),

@@ -101,9 +101,12 @@ impl Importer for DylibImporter {
         &self,
         source: &Path,
         output: &Path,
-        sources: &mut impl Sources,
-        dependencies: &mut impl Dependencies,
+        mut sources: &mut dyn Sources,
+        mut dependencies: &mut dyn Dependencies,
     ) -> Result<(), ImportError> {
+        let sources = &mut sources;
+        let dependencies = &mut dependencies;
+
         let os_str = source.as_os_str();
 
         #[cfg(any(unix, target_os = "wasi"))]
@@ -172,8 +175,8 @@ impl Importer for DylibImporter {
                 let source_count = read_u32(&mut buffer);
                 for _ in 0..source_count {
                     let Ok(source) = core::str::from_utf8(read_slice(&mut buffer)) else {
-                        return Err(ImportError::Other { reason: "`Importer::import` requires sources, but one of the strings is not UTF-8".to_owned() });
-                    };
+                    return Err(ImportError::Other { reason: "`Importer::import` requires sources, but one of the strings is not UTF-8".to_owned() });
+                };
 
                     sources.push(source.into());
                 }
@@ -181,11 +184,11 @@ impl Importer for DylibImporter {
                 let dependency_count = read_u32(&mut buffer);
                 for _ in 0..dependency_count {
                     let Ok(source) = core::str::from_utf8(read_slice(&mut buffer)) else {
-                        return Err(ImportError::Other { reason: "`Importer::import` requires dependencies, but one of the strings is not UTF-8".to_owned() });
-                    };
+                    return Err(ImportError::Other { reason: "`Importer::import` requires dependencies, but one of the strings is not UTF-8".to_owned() });
+                };
                     let Ok(target) = core::str::from_utf8(read_slice(&mut buffer)) else {
-                        return Err(ImportError::Other { reason: "`Importer::import` requires dependencies, but one of the strings is not UTF-8".to_owned() });
-                    };
+                    return Err(ImportError::Other { reason: "`Importer::import` requires dependencies, but one of the strings is not UTF-8".to_owned() });
+                };
                     dependencies.push(Dependency {
                         source: source.into(),
                         target: target.into(),
@@ -213,16 +216,6 @@ impl Importer for DylibImporter {
                 ),
             }),
         }
-    }
-
-    fn import_dyn(
-        &self,
-        source: &Path,
-        output: &Path,
-        mut sources: &mut dyn Sources,
-        mut dependencies: &mut dyn Dependencies,
-    ) -> Result<(), ImportError> {
-        Importer::import(self, source, output, &mut sources, &mut dependencies)
     }
 }
 
