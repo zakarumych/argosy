@@ -114,7 +114,7 @@ pub mod proc_macro {
         DecodeError,
     };
 
-    #[inline(never)]
+    #[inline(always)]
     pub fn deserialize_info<T: serde::de::DeserializeOwned>(
         bytes: &[u8],
     ) -> Result<T, DecodeError> {

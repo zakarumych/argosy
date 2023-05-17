@@ -152,7 +152,7 @@ where
     type BuildError = Error;
     type Fut = AssetHandle<A>;
 
-    #[inline(never)]
+    #[inline(always)]
     fn decode(id: AssetId, loader: &Loader) -> Self::Fut {
         loader.load(id)
     }
@@ -163,7 +163,7 @@ where
     A: Asset,
     A: AssetBuild<B>,
 {
-    #[inline(never)]
+    #[inline(always)]
     fn build(self, mut ready: LoadedAsset<A>) -> Result<A, Error> {
         ready.build(self.0)
     }
@@ -179,7 +179,7 @@ where
     type BuildError = Infallible;
     type Fut = Ready<Result<T, Infallible>>;
 
-    #[inline(never)]
+    #[inline(always)]
     fn decode(value: T, _: &Loader) -> Self::Fut {
         ready(Ok(value))
     }
@@ -189,7 +189,7 @@ impl<B, T> AssetFieldBuild<Inlined, T> for FieldBuilder<'_, B>
 where
     T: serde::de::DeserializeOwned + Clone + Sized + Send + Sync + 'static,
 {
-    #[inline(never)]
+    #[inline(always)]
     fn build(self, decoded: T) -> Result<T, Infallible> {
         Ok(decoded)
     }

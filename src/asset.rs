@@ -120,7 +120,7 @@ impl<A, B> AssetBuild<B> for A
 where
     A: TrivialAsset,
 {
-    #[inline(never)]
+    #[inline(always)]
     fn build(_: &mut B, decoded: A) -> Result<A, Infallible> {
         Ok(decoded)
     }

@@ -16,7 +16,7 @@ use serde::{
 pub struct AssetId(pub NonZeroU64);
 
 impl Serialize for AssetId {
-    #[inline(never)]
+    #[inline(always)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -39,12 +39,12 @@ struct AssetIdVisitor;
 impl<'de> serde::de::Visitor<'de> for AssetIdVisitor {
     type Value = AssetId;
 
-    #[inline(never)]
+    #[inline(always)]
     fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "a non-zero 64-bit integer or a hex string")
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn visit_u64<E>(self, v: u64) -> Result<AssetId, E>
     where
         E: Error,
@@ -55,7 +55,7 @@ impl<'de> serde::de::Visitor<'de> for AssetIdVisitor {
         }
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
     where
         E: Error,
@@ -67,7 +67,7 @@ impl<'de> serde::de::Visitor<'de> for AssetIdVisitor {
         }
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
     where
         E: Error,
@@ -77,7 +77,7 @@ impl<'de> serde::de::Visitor<'de> for AssetIdVisitor {
 }
 
 impl<'de> Deserialize<'de> for AssetId {
-    #[inline(never)]
+    #[inline(always)]
     fn deserialize<D>(deserializer: D) -> Result<AssetId, D::Error>
     where
         D: Deserializer<'de>,
@@ -98,7 +98,7 @@ pub enum ParseAssetIdError {
 impl FromStr for AssetId {
     type Err = ParseAssetIdError;
 
-    #[inline(never)]
+    #[inline(always)]
     fn from_str(s: &str) -> Result<Self, ParseAssetIdError> {
         let value = u64::from_str_radix(s, 16)?;
         match NonZeroU64::new(value) {
@@ -112,7 +112,7 @@ impl FromStr for AssetId {
 pub struct ZeroIDError;
 
 impl AssetId {
-    #[inline(never)]
+    #[inline(always)]
     pub const fn new(value: u64) -> Option<Self> {
         match NonZeroU64::new(value) {
             None => None,
@@ -120,14 +120,14 @@ impl AssetId {
         }
     }
 
-    #[inline(never)]
+    #[inline(always)]
     pub fn value(&self) -> NonZeroU64 {
         self.0
     }
 }
 
 impl From<NonZeroU64> for AssetId {
-    #[inline(never)]
+    #[inline(always)]
     fn from(value: NonZeroU64) -> Self {
         AssetId(value)
     }
@@ -145,28 +145,28 @@ impl TryFrom<u64> for AssetId {
 }
 
 impl Debug for AssetId {
-    #[inline(never)]
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         LowerHex::fmt(&self.0.get(), f)
     }
 }
 
 impl UpperHex for AssetId {
-    #[inline(never)]
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         UpperHex::fmt(&self.0.get(), f)
     }
 }
 
 impl LowerHex for AssetId {
-    #[inline(never)]
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         LowerHex::fmt(&self.0.get(), f)
     }
 }
 
 impl Display for AssetId {
-    #[inline(never)]
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         LowerHex::fmt(&self.0.get(), f)
     }
