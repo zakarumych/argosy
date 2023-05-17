@@ -64,7 +64,7 @@ pub trait LeafAsset: Clone + Sized + Send + Sync + 'static {
 
 /// Trivial assets have no dependencies and do not require building.
 /// They are decoded directly from bytes.
-/// And thus any type implements `AssetBuilder<Self>`.
+/// They implement `AssetBuild<B>` for any `B`.
 pub trait TrivialAsset: Clone + Sized + Send + Sync + 'static {
     type Error: Error + Send + Sync + 'static;
 
