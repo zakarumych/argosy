@@ -847,8 +847,6 @@ fn scan_local(
 }
 
 impl argosy::Source for Store {
-    type Error = std::io::Error;
-
     #[inline]
     fn find<'a>(&'a self, key: &'a str, asset: &'a str) -> BoxFuture<'a, Option<AssetId>> {
         Box::pin(async move {
@@ -867,12 +865,12 @@ impl argosy::Source for Store {
     fn load<'a>(
         &'a self,
         id: AssetId,
-    ) -> BoxFuture<'a, std::io::Result<Option<argosy::AssetData>>> {
+    ) -> BoxFuture<'a, Result<Option<argosy::AssetData>, argosy::Error>> {
         Box::pin(async move {
             match self.fetch(id).await {
                 None => Ok(None),
                 Some((path, modified)) => {
-                    let bytes = std::fs::read(&path)?;
+                    let bytes = std::fs::read(&path).map_err(argosy::Error::new)?;
                     Ok(Some(argosy::AssetData {
                         bytes: bytes.into_boxed_slice(),
                         version: modified_to_version(modified),
@@ -887,7 +885,7 @@ impl argosy::Source for Store {
         &'a self,
         id: AssetId,
         version: u64,
-    ) -> BoxFuture<'a, Result<Option<argosy::AssetData>, Self::Error>> {
+    ) -> BoxFuture<'a, Result<Option<argosy::AssetData>, argosy::Error>> {
         Box::pin(async move {
             match self.fetch(id).await {
                 None => Ok(None),
@@ -895,7 +893,7 @@ impl argosy::Source for Store {
                     if modified_to_version(modified) <= version {
                         return Ok(None);
                     }
-                    let bytes = std::fs::read(&path)?;
+                    let bytes = std::fs::read(&path).map_err(argosy::Error::new)?;
                     Ok(Some(argosy::AssetData {
                         bytes: bytes.into_boxed_slice(),
                         version: modified_to_version(modified),

@@ -1,6 +1,6 @@
-use std::convert::Infallible;
 
-use argosy::{Asset, AssetData, AssetDriver, AssetField, Loader, Source};
+
+use argosy::{Asset, AssetData, AssetDriver, AssetField, Error, Loader, Source};
 use argosy_id::AssetId;
 use futures::future::BoxFuture;
 
@@ -24,8 +24,6 @@ pub struct WithFoo {
 struct TestSource;
 
 impl Source for TestSource {
-    type Error = Infallible;
-
     fn find<'a>(&'a self, path: &'a str, asset: &'a str) -> BoxFuture<'a, Option<AssetId>> {
         match (path, asset) {
             ("WithFoo", "WithFoo") => Box::pin(async { Some(AssetId::new(2).unwrap()) }),
@@ -33,7 +31,7 @@ impl Source for TestSource {
         }
     }
 
-    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<Option<AssetData>, Infallible>> {
+    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
         match id {
             AssetId(id) if id.get() == 1 => Box::pin(async {
                 Ok(Some(AssetData {
@@ -55,7 +53,7 @@ impl Source for TestSource {
         &'a self,
         id: AssetId,
         _version: u64,
-    ) -> BoxFuture<'a, Result<Option<AssetData>, Self::Error>> {
+    ) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
         self.load(id)
     }
 }
@@ -82,6 +80,10 @@ fn main() {
         println!("{with_foo:?}");
 
         let with_foo = loader.load::<WithFoo, _>("WithFoo").ready().await.unwrap();
+
+        let _ = &with_foo.foo;
+        let _ = &with_foo.bar.foo;
+
         println!("{with_foo:?}");
     })
 }

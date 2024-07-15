@@ -8,6 +8,8 @@ use std::{
 use argosy_id::AssetId;
 use futures::future::BoxFuture;
 
+use crate::error::Error;
+
 use super::{AssetData, Source};
 
 pub struct FileSource {
@@ -15,40 +17,39 @@ pub struct FileSource {
 }
 
 impl Source for FileSource {
-    type Error = std::io::Error;
 
     fn find<'a>(&'a self, _path: &'a str, _asset: &'a str) -> BoxFuture<'a, Option<AssetId>> {
         // Somewhat counter-intuitively, FileSource does not support path-based asset lookup.
         Box::pin(async move { None })
     }
 
-    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, std::io::Result<Option<AssetData>>> {
+    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
         let path = self.root.join(id.to_string());
 
         Box::pin(async move {
             let mut file = match File::open(&path) {
                 Ok(file) => file,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(e) => return Err(e),
+                Err(e) => return Err(Error::new(e)),
             };
             let modified = file.metadata().and_then(|m| m.modified()).ok();
             let version = modified.map_or(0, |m| {
                 m.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
             });
 
-            let len = file.seek(SeekFrom::End(0))?;
+            let len = file.seek(SeekFrom::End(0)).map_err(Error::new)?;
 
             let Ok(len) = usize::try_from(len) else {
-                return Err(std::io::Error::new(
+                return Err(Error::new(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "Asset is too large",
-                ));
+                )));
             };
 
-            file.rewind()?;
+            file.rewind().map_err(Error::new)?;
 
             let mut data = Vec::with_capacity(len);
-            file.read_to_end(&mut data)?;
+            file.read_to_end(&mut data).map_err(Error::new)?;
 
             Ok(Some(AssetData {
                 bytes: data.into_boxed_slice(),
@@ -61,14 +62,14 @@ impl Source for FileSource {
         &'a self,
         id: AssetId,
         version: u64,
-    ) -> BoxFuture<'a, Result<Option<AssetData>, Self::Error>> {
+    ) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
         let path = self.root.join(id.to_string());
 
         Box::pin(async move {
             let mut file = match File::open(&path) {
                 Ok(file) => file,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(e) => return Err(e),
+                Err(e) => return Err(Error::new(e)),
             };
             let modified = file.metadata().and_then(|m| m.modified()).ok();
             let new_version = modified.map_or(0, |m| {
@@ -79,19 +80,19 @@ impl Source for FileSource {
                 return Ok(None);
             }
 
-            let len = file.seek(SeekFrom::End(0))?;
+            let len = file.seek(SeekFrom::End(0)).map_err(Error::new)?;
 
             let Ok(len) = usize::try_from(len) else {
-                return Err(std::io::Error::new(
+                return Err(Error::new(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "Asset is too large",
-                ));
+                )));
             };
 
-            file.rewind()?;
+            file.rewind().map_err(Error::new)?;
 
             let mut data = Vec::with_capacity(len);
-            file.read_to_end(&mut data)?;
+            file.read_to_end(&mut data).map_err(Error::new)?;
 
             Ok(Some(AssetData {
                 bytes: data.into_boxed_slice(),

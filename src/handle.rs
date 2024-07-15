@@ -796,6 +796,9 @@ where
 /// Future to wait for asset to be loaded.
 /// Unlike `AssetHandle` it is
 /// parametrized with builder type instead of asset type.
+///
+/// It can be used to await and then build asset,
+/// but not get asset instance at the end.
 pub struct AssetDriver<D: DriveAsset = NoBuilderDrive> {
     handle: Handle,
     build_fn: fn(

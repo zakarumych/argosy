@@ -16,7 +16,6 @@ use crate::{
     error::Error,
     handle::{AssetHandle, Handle, State},
     key::{hash_path_key, PathKey},
-    source::AnySource,
 };
 
 use crate::{
@@ -38,7 +37,7 @@ struct Data {
 /// Allows configure asset loader with required [`Source`]s.
 pub struct LoaderBuilder {
     num_shards: usize,
-    sources: Vec<Box<dyn AnySource>>,
+    sources: Vec<Box<dyn Source>>,
 }
 
 impl Default for LoaderBuilder {
@@ -68,6 +67,18 @@ impl LoaderBuilder {
     /// Adds provided source to the loader.
     pub fn with(mut self, source: impl Source) -> Self {
         self.sources.push(Box::new(source));
+        self
+    }
+
+    /// Adds provided source to the loader.
+    pub fn add_dyn(&mut self, source: Box<dyn Source>) -> &mut Self {
+        self.sources.push(source);
+        self
+    }
+
+    /// Adds provided source to the loader.
+    pub fn wit_dyn(mut self, source: Box<dyn Source>) -> Self {
+        self.sources.push(source);
         self
     }
 
@@ -124,7 +135,7 @@ pub(crate) type PathShard = Arc<Mutex<HashMap<PathKey, PathState, RandomState>>>
 #[derive(Clone)]
 pub struct Loader {
     /// Array of available asset sources.
-    sources: Arc<[Box<dyn AnySource>]>,
+    sources: Arc<[Box<dyn Source>]>,
 
     /// Hasher to pick a shard.
     random_state: RandomState,
@@ -555,7 +566,7 @@ async fn find_asset_task<A: Asset>(
     }
 }
 
-async fn load_asset(sources: &[Box<dyn AnySource>], id: AssetId) -> Result<Option<Data>, Error> {
+async fn load_asset(sources: &[Box<dyn Source>], id: AssetId) -> Result<Option<Data>, Error> {
     for (index, source) in sources.iter().enumerate() {
         if let Some(asset) = source.load(id).await? {
             return Ok(Some(Data {
@@ -568,7 +579,7 @@ async fn load_asset(sources: &[Box<dyn AnySource>], id: AssetId) -> Result<Optio
     Ok(None)
 }
 
-async fn find_asset<A: Asset>(sources: &[Box<dyn AnySource>], path: &str) -> Option<AssetId> {
+async fn find_asset<A: Asset>(sources: &[Box<dyn Source>], path: &str) -> Option<AssetId> {
     for source in sources {
         if let Some(id) = source.find(path, A::name()).await {
             return Some(id);
