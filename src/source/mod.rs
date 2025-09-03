@@ -1,7 +1,9 @@
 pub mod fs;
 
+use std::sync::Arc;
+
 use argosy_id::AssetId;
-use futures::{future::BoxFuture, TryFutureExt};
+use futures::future::BoxFuture;
 
 use crate::error::Error;
 
@@ -34,4 +36,25 @@ pub trait Source: Send + Sync + 'static {
         id: AssetId,
         version: u64,
     ) -> BoxFuture<'a, Result<Option<AssetData>, Error>>;
+}
+
+impl<S> Source for Arc<S>
+where
+    S: Source,
+{
+    fn find<'a>(&'a self, path: &'a str, asset: &'a str) -> BoxFuture<'a, Option<AssetId>> {
+        S::find(self, path, asset)
+    }
+
+    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
+        S::load(self, id)
+    }
+
+    fn update<'a>(
+        &'a self,
+        id: AssetId,
+        version: u64,
+    ) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
+        S::update(self, id, version)
+    }
 }
